@@ -1,0 +1,185 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+:root {
+  --font-inter: 'Inter', sans-serif;
+  --font-poppins: 'Poppins', sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+}
+
+@layer components {
+  /* Hero & Display Text */
+  .hero-title {
+    @apply text-5xl md:text-6xl lg:text-7xl font-bold font-heading text-neutral-900 leading-tight tracking-tight;
+  }
+  
+  .section-title {
+    @apply text-3xl md:text-4xl lg:text-5xl font-bold font-heading text-neutral-900 leading-tight tracking-tight;
+  }
+  
+  .feature-title {
+    @apply text-xl md:text-2xl font-semibold font-heading text-neutral-900 leading-tight;
+  }
+  
+  /* Button Styles (Anara-inspired) */
+  .btn-primary {
+    @apply bg-neutral-900 hover:bg-neutral-800 text-white font-medium py-3 px-6 rounded-2xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 shadow-soft;
+  }
+  
+  .btn-secondary {
+    @apply bg-white hover:bg-neutral-50 text-neutral-900 font-medium py-3 px-6 rounded-2xl border border-neutral-300 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:ring-offset-2 shadow-soft;
+  }
+  
+  .btn-outline {
+    @apply bg-transparent hover:bg-neutral-50 text-neutral-700 font-medium py-3 px-6 rounded-2xl border border-neutral-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:ring-offset-2;
+  }
+  
+  .btn-ghost {
+    @apply bg-transparent hover:bg-neutral-100 text-neutral-700 hover:text-neutral-900 font-medium py-2 px-4 rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:ring-offset-2;
+  }
+  
+  /* Form Elements */
+  .input-field {
+    @apply w-full px-4 py-3 border border-neutral-300 rounded-2xl focus:ring-2 focus:ring-neutral-900 focus:border-neutral-900 transition-all duration-200 placeholder-neutral-500 bg-white shadow-soft;
+  }
+  
+  /* Cards (Anara-inspired) */
+  .card {
+    @apply bg-white rounded-3xl shadow-soft border border-neutral-200/50 p-8;
+  }
+  
+  .card-hover {
+    @apply card hover:shadow-soft-lg hover:-translate-y-1 transition-all duration-300;
+  }
+  
+  .feature-card {
+    @apply bg-white rounded-3xl p-8 border border-neutral-200/50 shadow-soft hover:shadow-soft-lg transition-all duration-300 hover:-translate-y-1;
+  }
+  
+  /* Layout Utilities */
+  .section-padding {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+  
+  .container-width {
+    @apply max-w-7xl mx-auto;
+  }
+  
+  .container-narrow {
+    @apply max-w-4xl mx-auto;
+  }
+  
+  .container-tight {
+    @apply max-w-3xl mx-auto;
+  }
+  
+  /* Backgrounds */
+  .bg-gradient-soft {
+    @apply bg-gradient-to-br from-neutral-50 via-white to-neutral-100;
+  }
+  
+  .bg-gradient-purple {
+    @apply bg-gradient-to-br from-secondary-50 via-white to-secondary-100;
+  }
+  
+  .bg-gradient-blue {
+    @apply bg-gradient-to-br from-primary-50 via-white to-primary-100;
+  }
+  
+  /* Text Utilities */
+  .text-muted {
+    @apply text-neutral-600;
+  }
+  
+  .text-subtle {
+    @apply text-neutral-500;
+  }
+  
+  .gradient-text {
+    @apply bg-gradient-to-r from-neutral-900 via-secondary-600 to-accent-500 bg-clip-text text-transparent;
+  }
+  
+  /* Anara-style Section Headers */
+  .section-header {
+    @apply relative;
+  }
+  
+  .section-header::before {
+    content: '';
+    @apply absolute -left-6 top-1/2 -translate-y-1/2 w-4 h-0.5 bg-secondary-500 rounded-full;
+  }
+  
+  .section-tag {
+    @apply inline-flex items-center text-sm font-medium text-secondary-600 mb-4;
+  }
+  
+  .section-tag::before {
+    content: '';
+    @apply w-2 h-2 bg-secondary-500 rounded-full mr-3;
+  }
+  
+  /* Arrow Button (Anara style) */
+  .btn-arrow {
+    @apply inline-flex items-center text-neutral-700 hover:text-neutral-900 font-medium transition-colors duration-200 group;
+  }
+  
+  .btn-arrow::after {
+    content: '→';
+    @apply ml-2 transition-transform duration-200 group-hover:translate-x-1;
+  }
+  
+  /* Anara-style FAQ/Accordion */
+  .faq-item {
+    @apply border-b border-neutral-200 last:border-b-0;
+  }
+  
+  .faq-button {
+    @apply w-full text-left py-6 text-lg font-medium text-neutral-900 hover:text-neutral-700 transition-colors duration-200 focus:outline-none focus:text-neutral-700;
+  }
+  
+  .faq-content {
+    @apply pb-6 text-neutral-600 text-base leading-relaxed;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .animate-fade-in-up {
+    animation: fadeInUp 0.6s ease-out forwards;
+  }
+  
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
