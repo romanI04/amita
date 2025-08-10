@@ -113,6 +113,81 @@ export async function POST(request: NextRequest) {
       console.error('Error tracking progress via direct API:', progressError)
     }
 
+    // Voice profile integration - check if user has active voiceprint and auto-create if needed
+    try {
+      const { data: existingVoiceprint } = await supabase
+        .from('voiceprints')
+        .select('id, status')
+        .eq('user_id', user_id)
+        .eq('status', 'active')
+        .maybeSingle()
+
+      if (!existingVoiceprint) {
+        console.log('No active voice profile found, checking if we should auto-create')
+        
+        // Check if user has enough samples to create a voice profile
+        const { count: sampleCount } = await supabase
+          .from('writing_samples')
+          .select('id', { count: 'exact' })
+          .eq('user_id', user_id)
+
+        // Auto-create voice profile if user has 3+ samples and no active profile
+        if (sampleCount && sampleCount >= 3) {
+          console.log(`User has ${sampleCount} samples, auto-creating voice profile`)
+          
+          try {
+            const createResponse = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/api/voiceprint/create`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id })
+            })
+
+            if (createResponse.ok) {
+              const result = await createResponse.json()
+              console.log('Auto-created voice profile:', result.voiceprintId)
+              
+              // Trigger computation
+              const computeResponse = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/api/voiceprint/compute`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ voiceprintId: result.voiceprintId })
+              })
+
+              if (!computeResponse.ok) {
+                console.error('Failed to compute auto-created voice profile')
+              }
+            }
+          } catch (autoCreateError) {
+            console.error('Error auto-creating voice profile:', autoCreateError)
+          }
+        }
+      } else {
+        console.log('User has active voice profile:', existingVoiceprint.id)
+        
+        // Add this sample to the voiceprint for continuous learning
+        if (sampleData) {
+          try {
+            const stats = { wordCount: text.split(/\s+/).length }
+            
+            await directInsert('voiceprint_samples', {
+              voiceprint_id: existingVoiceprint.id,
+              title: title || 'Untitled Analysis',
+              source: 'analysis_feedback',
+              content: text,
+              word_count: stats.wordCount
+            }, { accessToken: session.access_token })
+
+            console.log('Added sample to existing voice profile')
+          } catch (sampleAddError) {
+            console.error('Error adding sample to voice profile:', sampleAddError)
+          }
+        }
+      }
+    } catch (voiceprintError) {
+      console.error('Error with voice profile integration:', voiceprintError)
+      // Continue with analysis even if voice profile operations fail
+    }
+
     console.log('Returning analysis result to client')
     return NextResponse.json(analysis)
 

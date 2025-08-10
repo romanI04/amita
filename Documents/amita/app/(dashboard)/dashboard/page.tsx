@@ -1,244 +1,274 @@
 'use client'
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth/context'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
-import { 
-  DocumentTextIcon, 
-  ChartBarIcon, 
-  UserCircleIcon,
-  PlusIcon,
-  ArrowTrendingUpIcon,
-  ExclamationTriangleIcon
-} from '@heroicons/react/24/outline'
+import { PlusIcon, DocumentTextIcon, SparklesIcon } from '@heroicons/react/24/outline'
+import AppLayout from '@/components/layout/AppLayout'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
+
+interface RecentAnalysis {
+  id: string;
+  title: string;
+  created_at: string;
+  ai_confidence_score: number;
+  authenticity_score: number;
+}
 
 export default function DashboardPage() {
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, loading } = useAuth()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [showVoiceprintSuccess, setShowVoiceprintSuccess] = useState(false)
+  const [recentAnalyses, setRecentAnalyses] = useState<RecentAnalysis[]>([])
+  const [analysisCount, setAnalysisCount] = useState(0)
+  const [isLoadingData, setIsLoadingData] = useState(true)
 
-  const mockStats = {
-    voiceHealthScore: 85,
-    aiDetectionRisk: 'low' as const,
-    totalSamples: 0,
-    improvementStreak: 0
-  }
-
-  const getRiskColor = (level: 'low' | 'medium' | 'high') => {
-    switch (level) {
-      case 'low':
-        return 'text-success-700 bg-success-100'
-      case 'medium':
-        return 'text-warning-700 bg-warning-100'
-      case 'high':
-        return 'text-error-700 bg-error-100'
+  // Redirect to onboarding if user hasn't completed it
+  useEffect(() => {
+    if (!loading && user && (!profile || !profile.onboarded)) {
+      console.log('User needs onboarding, redirecting...')
+      router.push('/onboarding')
     }
+  }, [loading, user, profile, router])
+
+  // Check for voiceprint creation success
+  useEffect(() => {
+    if (searchParams.get('voiceprint_created') === 'true') {
+      setShowVoiceprintSuccess(true)
+      const timer = setTimeout(() => {
+        setShowVoiceprintSuccess(false)
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [searchParams])
+
+  // Load user's analyses data
+  useEffect(() => {
+    if (!user || loading) return
+
+    const loadAnalysesData = async () => {
+      try {
+        const supabase = createClient()
+        
+        // Get recent analyses
+        const { data: analyses, error: analysesError } = await supabase
+          .from('writing_samples')
+          .select('id, title, created_at, ai_confidence_score, authenticity_score')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5)
+
+        if (analysesError) {
+          console.error('Error loading analyses:', analysesError)
+        } else {
+          setRecentAnalyses(analyses || [])
+        }
+
+        // Get total count for this month
+        const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM format
+        const { count, error: countError } = await supabase
+          .from('writing_samples')
+          .select('id', { count: 'exact' })
+          .eq('user_id', user.id)
+          .gte('created_at', `${currentMonth}-01`)
+          .lt('created_at', `${currentMonth}-31`)
+
+        if (countError) {
+          console.error('Error loading count:', countError)
+        } else {
+          setAnalysisCount(count || 0)
+        }
+      } catch (error) {
+        console.error('Error loading dashboard data:', error)
+      } finally {
+        setIsLoadingData(false)
+      }
+    }
+
+    loadAnalysesData()
+  }, [user, loading])
+
+  // Show loading while checking onboarding status
+  if (loading || (user && (!profile || !profile.onboarded))) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-soft">
-      {/* Navigation Header */}
-      <nav className="bg-white/80 backdrop-blur-sm border-b border-neutral-200/50 sticky top-0 z-50">
-        <div className="container-width section-padding">
-          <div className="flex items-center justify-between h-18">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-bold font-heading text-neutral-900">
-                amita.ai
-              </h1>
-            </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-muted">
-                Welcome, {profile?.full_name || user?.email?.split('@')[0]}
-              </span>
-              <Button variant="ghost" onClick={signOut} size="sm">
-                Sign out
-              </Button>
+    <AppLayout>
+      <div className="flex-1">
+        {/* Success Banner */}
+        {showVoiceprintSuccess && (
+          <div className="bg-green-50 border-b border-green-200 px-6 py-4">
+            <div className="flex items-center justify-between">
+              <p className="text-green-800 font-medium">
+                🎉 Your Voice Profile has been created successfully! Your writing analysis is now more personalized.
+              </p>
+              <button
+                onClick={() => setShowVoiceprintSuccess(false)}
+                className="text-green-600 hover:text-green-800"
+              >
+                ✕
+              </button>
             </div>
           </div>
-        </div>
-      </nav>
+        )}
 
-      <div className="container-width section-padding py-12">
-        {/* Welcome Section */}
-        <div className="mb-12 animate-fade-in-up">
-          <h1 className="section-title mb-4">
-            Your Writing Dashboard
-          </h1>
-          <p className="text-xl text-muted">
-            Track your authentic voice and improve your writing skills
-          </p>
-        </div>
+        {/* Main Content */}
+        <div className="p-8">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-2xl font-semibold text-gray-900 mb-2">
+              Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, {profile?.full_name?.split(' ')[0] || 'there'}
+            </h1>
+            <p className="text-gray-600">
+              Ready to analyze your writing and preserve your authentic voice?
+            </p>
+          </div>
 
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
-          <Card hover className="animate-scale-in">
-            <CardContent>
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-secondary-100 rounded-2xl">
-                  <ArrowTrendingUpIcon className="h-6 w-6 text-secondary-700" />
-                </div>
-                <span className="text-3xl font-bold text-neutral-900">
-                  {mockStats.voiceHealthScore}%
-                </span>
-              </div>
-              <h3 className="font-semibold text-neutral-900 mb-1">Voice Health</h3>
-              <p className="text-sm text-muted">Your authenticity score</p>
-            </CardContent>
-          </Card>
-
-          <Card hover className="animate-scale-in" style={{animationDelay: '0.1s'}}>
-            <CardContent>
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-warning-100 rounded-2xl">
-                  <ExclamationTriangleIcon className="h-6 w-6 text-warning-700" />
-                </div>
-                <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full capitalize ${getRiskColor(mockStats.aiDetectionRisk)}`}>
-                  {mockStats.aiDetectionRisk}
-                </span>
-              </div>
-              <h3 className="font-semibold text-neutral-900 mb-1">AI Detection Risk</h3>
-              <p className="text-sm text-muted">Detection likelihood</p>
-            </CardContent>
-          </Card>
-
-          <Card hover className="animate-scale-in" style={{animationDelay: '0.2s'}}>
-            <CardContent>
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-primary-100 rounded-2xl">
-                  <DocumentTextIcon className="h-6 w-6 text-primary-700" />
-                </div>
-                <span className="text-3xl font-bold text-neutral-900">
-                  {mockStats.totalSamples}
-                </span>
-              </div>
-              <h3 className="font-semibold text-neutral-900 mb-1">Samples Analyzed</h3>
-              <p className="text-sm text-muted">Total writing samples</p>
-            </CardContent>
-          </Card>
-
-          <Card hover className="animate-scale-in" style={{animationDelay: '0.3s'}}>
-            <CardContent>
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-success-100 rounded-2xl">
-                  <ChartBarIcon className="h-6 w-6 text-success-700" />
-                </div>
-                <span className="text-3xl font-bold text-neutral-900">
-                  {mockStats.improvementStreak}
-                  <span className="text-lg text-muted ml-1">days</span>
-                </span>
-              </div>
-              <h3 className="font-semibold text-neutral-900 mb-1">Improvement Streak</h3>
-              <p className="text-sm text-muted">Consecutive days writing</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Main Actions */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
           {/* Quick Actions */}
-          <Card hover className="animate-fade-in-up">
-            <CardHeader>
-              <CardTitle className="text-2xl">Quick Actions</CardTitle>
-              <CardDescription>
-                Start analyzing your writing to preserve your authentic voice
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Link href="/analyze" className="block">
-                <Button className="w-full justify-start h-14 text-base group">
-                  <PlusIcon className="mr-3 h-5 w-5 group-hover:scale-110 transition-transform" />
-                  Analyze New Text
-                </Button>
-              </Link>
-              <Link href="/upload" className="block">
-                <Button variant="secondary" className="w-full justify-start h-12 text-base group">
-                  <DocumentTextIcon className="mr-3 h-5 w-5 group-hover:scale-110 transition-transform" />
-                  Upload Document
-                </Button>
-              </Link>
-              <Link href="/profile" className="block">
-                <Button variant="secondary" className="w-full justify-start h-12 text-base group">
-                  <UserCircleIcon className="mr-3 h-5 w-5 group-hover:scale-110 transition-transform" />
-                  View Voice Profile
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-
-          {/* Getting Started */}
-          <Card hover className="animate-fade-in-up" style={{animationDelay: '0.2s'}}>
-            <CardHeader>
-              <CardTitle className="text-2xl">Getting Started</CardTitle>
-              <CardDescription>
-                Your journey to preserving authentic writing
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                <div className="flex items-start space-x-4">
-                  <div className="flex-shrink-0 w-8 h-8 bg-secondary-600 rounded-full flex items-center justify-center">
-                    <span className="text-sm font-medium text-white">1</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-12">
+            <Link href="/analyze">
+              <div className="bg-white border border-gray-200 rounded-lg p-6 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer group">
+                <div className="flex items-center space-x-4">
+                  <div className="p-3 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
+                    <DocumentTextIcon className="h-6 w-6 text-blue-600" />
                   </div>
                   <div>
-                    <h4 className="font-semibold text-neutral-900 mb-1">Upload your first writing sample</h4>
-                    <p className="text-muted">Let us analyze your unique writing style</p>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-4">
-                  <div className="flex-shrink-0 w-8 h-8 bg-neutral-200 rounded-full flex items-center justify-center">
-                    <span className="text-sm font-medium text-neutral-500">2</span>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-neutral-900 mb-1">Review your voice profile</h4>
-                    <p className="text-muted">Understand what makes your writing unique</p>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-4">
-                  <div className="flex-shrink-0 w-8 h-8 bg-neutral-200 rounded-full flex items-center justify-center">
-                    <span className="text-sm font-medium text-neutral-500">3</span>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-neutral-900 mb-1">Start improving</h4>
-                    <p className="text-muted">Get personalized coaching tips</p>
+                    <h3 className="font-medium text-gray-900">Analyze Text</h3>
+                    <p className="text-sm text-gray-500">{analysisCount}/25 this month</p>
                   </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            </Link>
 
-        {/* Recent Activity */}
-        <Card hover className="animate-fade-in-up" style={{animationDelay: '0.4s'}}>
-          <CardHeader>
-            <CardTitle className="text-2xl">Recent Activity</CardTitle>
-            <CardDescription>
-              Your latest writing analysis and improvements
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center py-16">
-              <div className="mb-8">
-                <div className="w-20 h-20 bg-neutral-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <DocumentTextIcon className="h-10 w-10 text-neutral-400" />
+            <div className="bg-white border border-gray-200 rounded-lg p-6 opacity-50 cursor-not-allowed">
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <SparklesIcon className="h-6 w-6 text-gray-400" />
                 </div>
-                <h3 className="text-xl font-semibold text-neutral-900 mb-2">
-                  No writing samples analyzed yet
-                </h3>
-                <p className="text-muted max-w-md mx-auto mb-8">
-                  Upload your first writing sample to start building your authentic voice profile and get personalized insights.
-                </p>
+                <div>
+                  <h3 className="font-medium text-gray-500">Voice Coaching</h3>
+                  <p className="text-sm text-gray-400">Coming soon</p>
+                </div>
               </div>
-              
-              <Link href="/analyze">
-                <Button size="lg" className="group">
-                  Upload Your First Sample
-                  <PlusIcon className="ml-2 h-5 w-5 group-hover:scale-110 transition-transform" />
-                </Button>
-              </Link>
             </div>
-          </CardContent>
-        </Card>
+
+            <Link href="/profile">
+              <div className="bg-white border border-gray-200 rounded-lg p-6 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer group">
+                <div className="flex items-center space-x-4">
+                  <div className="p-3 bg-purple-50 rounded-lg group-hover:bg-purple-100 transition-colors">
+                    <DocumentTextIcon className="h-6 w-6 text-purple-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-gray-900">Voice Profile</h3>
+                    <p className="text-sm text-gray-500">View your writing traits</p>
+                  </div>
+                </div>
+              </div>
+            </Link>
+          </div>
+
+          {/* Recent Activity */}
+          <div className="bg-white border border-gray-200 rounded-lg">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-medium text-gray-900">Recent Activity</h2>
+            </div>
+            
+            {isLoadingData ? (
+              <div className="p-8 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading your analyses...</p>
+              </div>
+            ) : recentAnalyses.length > 0 ? (
+              <div className="divide-y divide-gray-200">
+                {recentAnalyses.map((analysis) => {
+                  const createdAt = new Date(analysis.created_at)
+                  const timeAgo = getTimeAgo(createdAt)
+                  const aiRisk = analysis.ai_confidence_score || 0
+                  const authenticity = analysis.authenticity_score || 0
+                  
+                  return (
+                    <Link key={analysis.id} href={`/analyze?sample_id=${analysis.id}`}>
+                      <div className="px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <h3 className="font-medium text-gray-900">
+                              {analysis.title || 'Untitled Analysis'}
+                            </h3>
+                            <p className="text-sm text-gray-500">{timeAgo}</p>
+                          </div>
+                          <div className="flex items-center space-x-4 text-sm">
+                            <div className="text-right">
+                              <div className="text-gray-900 font-medium">
+                                {Math.round(authenticity)}% Authentic
+                              </div>
+                              <div className={`text-xs ${
+                                aiRisk < 20 ? 'text-green-600' : 
+                                aiRisk < 40 ? 'text-yellow-600' : 'text-red-600'
+                              }`}>
+                                {Math.round(aiRisk)}% AI Risk
+                              </div>
+                            </div>
+                            <DocumentTextIcon className="h-5 w-5 text-gray-400" />
+                          </div>
+                        </div>
+                      </div>
+                    </Link>
+                  )
+                })}
+                
+                {recentAnalyses.length >= 5 && (
+                  <div className="px-6 py-4 text-center border-t border-gray-200">
+                    <Link href="/analyze" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+                      View all analyses →
+                    </Link>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-12 text-center">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <DocumentTextIcon className="h-8 w-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  No analyses yet
+                </h3>
+                <p className="text-gray-500 mb-6 max-w-sm mx-auto">
+                  Start by analyzing your first piece of writing to build your voice profile and get insights.
+                </p>
+                <Link href="/analyze">
+                  <Button className="bg-gray-900 text-white hover:bg-gray-800">
+                    <PlusIcon className="w-4 h-4 mr-2" />
+                    Analyze Your First Text
+                  </Button>
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </AppLayout>
   )
+}
+
+function getTimeAgo(date: Date): string {
+  const now = new Date()
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+  
+  if (diffInSeconds < 60) return 'Just now'
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`
+  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`
+  
+  return date.toLocaleDateString()
 }
