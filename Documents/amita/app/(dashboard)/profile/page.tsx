@@ -1,9 +1,15 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useAuth } from '@/lib/auth/context'
 import { useRouter } from 'next/navigation'
+import { useVoiceProfile, useVoiceProfileSelectors } from '@/lib/context/VoiceProfileContext'
+import { useConstraintChanges, useSampleEvents } from '@/lib/events/VoiceProfileEvents'
+import { useVoiceProfileAnalytics } from '@/lib/hooks/useAnalytics'
 import { Button } from '@/components/ui/Button'
+import { SkeletonLoader } from '@/components/ui/SkeletonLoader'
+import { EmptyStates } from '@/components/ui/EmptyState'
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { 
   UserCircleIcon, 
   ChartBarIcon, 
@@ -60,123 +66,117 @@ const DOMAIN_TABS = ['General', 'Academic', 'Email', 'Creative']
 export default function ProfilePage() {
   const { user, profile, loading } = useAuth()
   const router = useRouter()
-  const [profileData, setProfileData] = useState<VoiceProfileData>({
-    voiceprint: null,
-    traits: null,
-    sampleCount: 0,
-    totalWords: 0,
-    recentSamples: [],
-    averageAuthenticity: 0,
-    averageAIRisk: 0,
-    voiceDrift: 'stable',
-    coverage: 'low'
-  })
-  const [isLoadingProfile, setIsLoadingProfile] = useState(true)
+  const { state: voiceProfileState, toggleLock, switchDomain } = useVoiceProfile()
+  const selectors = useVoiceProfileSelectors()
+  const profileAnalytics = useVoiceProfileAnalytics()
+  
   const [isCreatingVoiceprint, setIsCreatingVoiceprint] = useState(false)
-  const [voiceLocks, setVoiceLocks] = useState<VoiceLock[]>(INITIAL_VOICE_LOCKS)
-  const [activeTab, setActiveTab] = useState('General')
   const [showProofPanel, setShowProofPanel] = useState(false)
   const [selectedProof, setSelectedProof] = useState<string | null>(null)
+  const [constraintUpdateNotification, setConstraintUpdateNotification] = useState<string | null>(null)
+  
+  // Memoize profile data to prevent unnecessary re-renders
+  const profileData = useMemo(() => ({
+    voiceprint: voiceProfileState.voiceprint,
+    traits: voiceProfileState.traits,
+    sampleCount: voiceProfileState.coverage.sampleCount,
+    totalWords: voiceProfileState.coverage.wordCount,
+    recentSamples: selectors.getRecentSamples(),
+    averageAuthenticity: voiceProfileState.averageIntegrity,
+    averageAIRisk: voiceProfileState.averageRisk,
+    voiceDrift: voiceProfileState.voiceDrift,
+    coverage: voiceProfileState.coverage.confidence
+  }), [
+    voiceProfileState.voiceprint,
+    voiceProfileState.traits,
+    voiceProfileState.coverage,
+    voiceProfileState.averageIntegrity,
+    voiceProfileState.averageRisk,
+    voiceProfileState.voiceDrift,
+    selectors
+  ])
+  
+  const isLoadingProfile = voiceProfileState.isLoading
 
-  // Load voice profile data
-  useEffect(() => {
-    if (!user || loading) return
+  // Voice profile data is now loaded via the VoiceProfileProvider
+  // No need for manual loading here anymore
 
-    const loadVoiceProfile = async () => {
-      try {
-        const supabase = createClient()
-        console.log('Loading voice profile for user:', user.id)
-
-        // Get user's voiceprint (get the most recent active one)
-        const { data: voiceprintList, error: voiceprintError } = await supabase
-          .from('voiceprints')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('status', 'active')
-          .order('created_at', { ascending: false })
-          .limit(1)
-
-        const voiceprint = voiceprintList?.[0] || null
-
-        console.log('Voiceprint query result:', { voiceprint, voiceprintError })
-
-        if (voiceprintError) {
-          console.error('Error loading voiceprint:', voiceprintError)
-        }
-
-        let traits = null
-        if (voiceprint) {
-          // Get voice traits
-          const { data: voiceprintTraits } = await supabase
-            .from('voiceprint_traits')
-            .select('*')
-            .eq('voiceprint_id', voiceprint.id)
-            .order('version', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-
-          traits = voiceprintTraits
-        }
-
-        // Get writing samples
-        const { data: samples, error: samplesError } = await supabase
-          .from('writing_samples')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-
-        if (samplesError) {
-          console.error('Error loading samples:', samplesError)
-        }
-
-        const sampleCount = samples?.length || 0
-        const recentSamples = samples?.slice(0, 5) || []
-        const totalWords = samples?.reduce((sum, s) => sum + (s.content?.split(/\s+/).length || 0), 0) || 0
-
-        // Calculate averages
-        let averageAuthenticity = 0
-        let averageAIRisk = 0
-        if (samples && samples.length > 0) {
-          const totalAuth = samples.reduce((sum, s) => sum + (Number(s.authenticity_score) || 0), 0)
-          const totalAI = samples.reduce((sum, s) => sum + (Number(s.ai_confidence_score) || 0), 0)
-          averageAuthenticity = totalAuth / samples.length
-          averageAIRisk = totalAI / samples.length
-        }
-
-        // Determine coverage
-        let coverage: 'low' | 'medium' | 'high' = 'low'
-        if (totalWords >= 3000 && sampleCount >= 5) coverage = 'high'
-        else if (totalWords >= 1000 && sampleCount >= 3) coverage = 'medium'
-
-        // Mock voice drift calculation
-        const voiceDrift = averageAIRisk > 30 ? 'major' : averageAIRisk > 15 ? 'slight' : 'stable'
-
-        setProfileData({
-          voiceprint,
-          traits,
-          sampleCount,
-          totalWords,
-          recentSamples,
-          averageAuthenticity,
-          averageAIRisk,
-          voiceDrift,
-          coverage
-        })
-      } catch (error) {
-        console.error('Error loading voice profile:', error)
-      } finally {
-        setIsLoadingProfile(false)
-      }
+  // Listen for constraint changes to show real-time feedback
+  useConstraintChanges((data) => {
+    if (data.reason === 'lock_change') {
+      setConstraintUpdateNotification('Rewrites now respect your updated locks.')
+      setTimeout(() => setConstraintUpdateNotification(null), 4000)
+    } else if (data.reason === 'domain_change') {
+      setConstraintUpdateNotification(`Switched to ${data.domain} domain. Analysis adapted.`)
+      setTimeout(() => setConstraintUpdateNotification(null), 4000)
     }
+  })
 
-    loadVoiceProfile()
-  }, [user, loading])
+  // Listen for sample events to show coverage updates
+  useSampleEvents((eventType, data) => {
+    if (eventType === 'sample.created') {
+      setConstraintUpdateNotification(`New sample added (+${data.wordCount} words). Profile strengthening.`)
+      setTimeout(() => setConstraintUpdateNotification(null), 4000)
+    } else if (eventType === 'sample.analyzed') {
+      const integrity = data.analysis?.integrityScore || 0
+      const risk = data.analysis?.riskScore || 0
+      setConstraintUpdateNotification(`Analysis complete: ${Math.round(integrity)} integrity, ${Math.round(risk)}% risk. Profile updated.`)
+      setTimeout(() => setConstraintUpdateNotification(null), 5000)
+    } else if (eventType === 'sample.updated' && data.reason === 'voice_aware_rewrite') {
+      const { rewritesApplied, riskReduction } = data.updates
+      setConstraintUpdateNotification(`Voice-aware rewrite applied: ${rewritesApplied} sections improved, ${riskReduction}% risk reduced.`)
+      setTimeout(() => setConstraintUpdateNotification(null), 5000)
+    }
+  })
 
-  const toggleVoiceLock = (lockId: string) => {
-    setVoiceLocks(prev => prev.map(lock => 
-      lock.id === lockId ? { ...lock, enabled: !lock.enabled } : lock
-    ))
+  const handleToggleLock = (lockId: string) => {
+    // Map UI lock IDs to shared state lock types
+    const lockMapping = {
+      'sentence_length': 'sentenceLength',
+      'idioms': 'keepIdioms', 
+      'hedge_frequency': 'hedgeFrequency',
+      'punctuation': 'punctuationStyle'
+    }
+    
+    const lockType = lockMapping[lockId as keyof typeof lockMapping] as keyof typeof voiceProfileState.locks
+    if (lockType) {
+      const currentValue = voiceProfileState.locks[lockType]
+      const newValue = typeof currentValue === 'object' ? !currentValue.enabled : !currentValue
+      
+      // Track lock toggle analytics
+      profileAnalytics.trackLockToggled(lockId, newValue, voiceProfileState.voiceprint?.id)
+      
+      toggleLock(lockType)
+    }
   }
+
+  // Convert shared state locks to UI format
+  const voiceLocks = [
+    { 
+      id: 'sentence_length', 
+      name: 'Sentence length ±10%', 
+      description: 'Maintain your natural sentence rhythm', 
+      enabled: voiceProfileState.locks.sentenceLength.enabled 
+    },
+    { 
+      id: 'idioms', 
+      name: 'Keep idioms/slang', 
+      description: 'Preserve your unique expressions', 
+      enabled: voiceProfileState.locks.keepIdioms 
+    },
+    { 
+      id: 'hedge_frequency', 
+      name: 'Hedge frequency stable', 
+      description: 'Keep your level of uncertainty words', 
+      enabled: voiceProfileState.locks.hedgeFrequency 
+    },
+    { 
+      id: 'punctuation', 
+      name: 'Punctuation style', 
+      description: 'Maintain your punctuation patterns', 
+      enabled: voiceProfileState.locks.punctuationStyle 
+    },
+  ]
 
   const getIntegrityColor = (score: number) => {
     if (score >= 85) return 'text-green-700'
@@ -196,27 +196,46 @@ export default function ProfilePage() {
     return 'text-red-700'
   }
 
-  const getRiskDrivers = (): RiskDriver[] => [
-    { name: 'Structure', level: 'medium', description: 'Repetitive sentence patterns', actionText: 'Reduce safely' },
-    { name: 'Repetition', level: 'low', description: 'Word choice variety', actionText: 'Reduce safely' },
-    { name: 'Perplexity', level: 'high', description: 'Predictable phrasing', actionText: 'Reduce safely' },
-    { name: 'Error scarcity', level: 'medium', description: 'Too perfect grammar', actionText: 'Reduce safely' },
-  ]
+  const getRiskDrivers = (): RiskDriver[] => {
+    // Use real risk drivers from voice profile state
+    const { riskDrivers } = voiceProfileState
+    return [
+      { 
+        name: 'Structure', 
+        level: riskDrivers.structure.level, 
+        description: 'Sentence pattern analysis', 
+        actionText: 'Optimize structure' 
+      },
+      { 
+        name: 'Repetition', 
+        level: riskDrivers.repetition.level, 
+        description: 'Word choice variety', 
+        actionText: 'Increase variety' 
+      },
+      { 
+        name: 'Perplexity', 
+        level: riskDrivers.perplexity.level, 
+        description: 'Predictability analysis', 
+        actionText: 'Reduce predictability' 
+      },
+      { 
+        name: 'Error scarcity', 
+        level: riskDrivers.errorScarcity.level, 
+        description: 'Natural imperfection', 
+        actionText: 'Add naturalness' 
+      },
+    ]
+  }
 
   const getSignatureTraits = () => {
     if (!profileData.traits?.trait_summary?.signature_traits) {
-      return [
-        { name: 'Favorite verbs', examples: ['leverage', 'integrate', 'optimize'] },
-        { name: 'Idioms', examples: ['in the long run', 'at the end of the day'] },
-        { name: 'Cadence', examples: ['16.2 avg words/sentence', '±4.3 variance'] },
-        { name: 'Hedge phrases', examples: ['I think', 'perhaps', 'might be'] },
-        { name: 'Punctuation', examples: ['em-dash heavy', 'serial comma'] },
-      ]
+      return [] // No synthetic data - show empty state
     }
     
     return profileData.traits.trait_summary.signature_traits.slice(0, 5).map(trait => ({
       name: trait.name,
-      examples: ['analyzing...'] // In real implementation, extract from content
+      description: trait.description,
+      strength: trait.strength
     }))
   }
 
@@ -225,13 +244,39 @@ export default function ProfilePage() {
     setShowProofPanel(true)
   }
 
+  // Enhanced loading state with skeleton
   if (loading || isLoadingProfile) {
     return (
       <AppLayout>
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading your voice profile...</p>
+        <div className="flex-1 bg-gray-50">
+          <div className="max-w-7xl mx-auto py-8 px-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
+              <div className="lg:col-span-8 space-y-6">
+                <SkeletonLoader variant="profile" />
+                <SkeletonLoader variant="profile" />
+              </div>
+              <div className="lg:col-span-4 space-y-6">
+                <SkeletonLoader variant="card" />
+                <SkeletonLoader variant="card" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </AppLayout>
+    )
+  }
+
+  // Error state handling
+  if (voiceProfileState.error && !voiceProfileState.isLoading) {
+    return (
+      <AppLayout>
+        <div className="flex-1 bg-gray-50">
+          <div className="max-w-4xl mx-auto py-12 px-6">
+            <EmptyStates.LoadingFailed 
+              title="Failed to load voice profile"
+              description={voiceProfileState.error}
+              onAction={() => window.location.reload()}
+            />
           </div>
         </div>
       </AppLayout>
@@ -239,8 +284,25 @@ export default function ProfilePage() {
   }
 
   return (
-    <AppLayout>
-      <div className="flex-1 bg-gray-50">
+    <ErrorBoundary>
+      <AppLayout>
+        <div className="flex-1 bg-gray-50">
+        {/* Real-time Constraint Update Notification */}
+        {constraintUpdateNotification && (
+          <div className="bg-purple-50 border-b border-purple-200 px-6 py-4 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <p className="text-purple-800 font-medium">
+                {constraintUpdateNotification}
+              </p>
+              <button
+                onClick={() => setConstraintUpdateNotification(null)}
+                className="text-purple-600 hover:text-purple-800"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
         {!profileData.voiceprint ? (
           // No voice profile - creation flow
           <div className="max-w-4xl mx-auto py-12 px-6">
@@ -357,7 +419,7 @@ export default function ProfilePage() {
                           </div>
                         </div>
                         <button
-                          onClick={() => toggleVoiceLock(lock.id)}
+                          onClick={() => handleToggleLock(lock.id)}
                           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                             lock.enabled ? 'bg-green-600' : 'bg-gray-200'
                           }`}
@@ -377,25 +439,34 @@ export default function ProfilePage() {
                 <div className="bg-white rounded-2xl p-6 shadow-sm">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Signature Proof</h3>
                   
-                  <div className="flex flex-wrap gap-3 mb-4">
-                    {getSignatureTraits().map((trait, index) => (
+                  {getSignatureTraits().length > 0 ? (
+                    <>
+                      <div className="flex flex-wrap gap-3 mb-4">
+                        {getSignatureTraits().map((trait, index) => (
+                          <button
+                            key={index}
+                            onClick={() => showProofExamples(trait.name)}
+                            className="inline-flex items-center px-3 py-2 rounded-lg bg-blue-50 text-blue-800 text-sm font-medium hover:bg-blue-100 transition-colors"
+                          >
+                            {trait.name}
+                            <EyeIcon className="ml-2 h-4 w-4" />
+                          </button>
+                        ))}
+                      </div>
+                      
                       <button
-                        key={index}
-                        onClick={() => showProofExamples(trait.name)}
-                        className="inline-flex items-center px-3 py-2 rounded-lg bg-blue-50 text-blue-800 text-sm font-medium hover:bg-blue-100 transition-colors"
+                        onClick={() => setShowProofPanel(true)}
+                        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
                       >
-                        {trait.name}
-                        <EyeIcon className="ml-2 h-4 w-4" />
+                        See examples →
                       </button>
-                    ))}
-                  </div>
-                  
-                  <button
-                    onClick={() => setShowProofPanel(true)}
-                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-                  >
-                    See examples →
-                  </button>
+                    </>
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-gray-500 mb-2">No signature traits available yet</p>
+                      <p className="text-sm text-gray-400">Add more writing samples to identify your unique patterns</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -444,17 +515,9 @@ export default function ProfilePage() {
                     </span>
                   </div>
                   
-                  {/* Mock sparkline */}
-                  <div className="h-12 bg-gray-100 rounded-lg mb-3 flex items-end px-2 py-2">
-                    <div className="flex-1 flex items-end space-x-1">
-                      {Array.from({ length: 14 }).map((_, i) => (
-                        <div
-                          key={i}
-                          className="flex-1 bg-blue-500 rounded-sm opacity-70"
-                          style={{ height: `${20 + Math.random() * 20}px` }}
-                        />
-                      ))}
-                    </div>
+                  {/* Voice Drift Chart - Real data needed */}
+                  <div className="h-12 bg-gray-100 rounded-lg mb-3 flex items-center justify-center">
+                    <p className="text-sm text-gray-500">Chart not available yet</p>
                   </div>
                   
                   <p className="text-sm text-gray-600">
@@ -473,9 +536,13 @@ export default function ProfilePage() {
                   {DOMAIN_TABS.map(tab => (
                     <button
                       key={tab}
-                      onClick={() => setActiveTab(tab)}
+                      onClick={() => {
+                        const previousDomain = voiceProfileState.domains.active
+                        profileAnalytics.trackDomainSwitch(previousDomain, tab, voiceProfileState.voiceprint?.id)
+                        switchDomain(tab)
+                      }}
                       className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-                        activeTab === tab
+                        voiceProfileState.domains.active === tab
                           ? 'bg-white text-gray-900 shadow-sm'
                           : 'text-gray-600 hover:text-gray-900'
                       }`}
@@ -516,53 +583,43 @@ export default function ProfilePage() {
             <div className="bg-white rounded-2xl p-6 mb-8 shadow-sm">
               <h3 className="text-lg font-semibold text-gray-900 mb-6">Areas to Improve</h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h4 className="font-medium text-gray-900">Too casual in professional contexts</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Your openings and closings lean informal for business settings
-                      </p>
+              {profileData.traits?.trait_summary?.pitfalls?.length ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {profileData.traits.trait_summary.pitfalls.slice(0, 4).map((pitfall, index) => (
+                    <div key={index} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h4 className="font-medium text-gray-900">{pitfall.name}</h4>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {pitfall.description}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2 mb-3">
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          pitfall.severity === 'high' ? 'bg-red-100 text-red-800' :
+                          pitfall.severity === 'medium' ? 'bg-amber-100 text-amber-800' :
+                          'bg-green-100 text-green-800'
+                        }`}>
+                          {pitfall.severity} severity
+                        </span>
+                        <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs font-medium rounded-full">
+                          {pitfall.category}
+                        </span>
+                      </div>
+                      <div className="flex space-x-2">
+                        <Button size="sm">Apply Fix</Button>
+                        <Button size="sm" variant="outline">Explain</Button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-2 mb-3">
-                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
-                      Clarity +2
-                    </span>
-                    <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
-                      Risk −3%
-                    </span>
-                  </div>
-                  <div className="flex space-x-2">
-                    <Button size="sm">Apply</Button>
-                    <Button size="sm" variant="outline">Explain</Button>
-                  </div>
+                  ))}
                 </div>
-
-                <div className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h4 className="font-medium text-gray-900">Repetitive contrast pattern</h4>
-                      <p className="text-sm text-gray-600 mt-1">
-                        Overusing "sometimes" in dual comparisons
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2 mb-3">
-                    <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
-                      Variety +3
-                    </span>
-                    <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
-                      Risk −2%
-                    </span>
-                  </div>
-                  <div className="flex space-x-2">
-                    <Button size="sm">Apply</Button>
-                    <Button size="sm" variant="outline">Explain</Button>
-                  </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500 mb-2">No improvement suggestions available yet</p>
+                  <p className="text-sm text-gray-400">Analyze more writing samples to receive personalized coaching</p>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* 6. Recent Samples */}
@@ -662,33 +719,37 @@ export default function ProfilePage() {
               </div>
               
               <div className="space-y-4">
-                <div className="p-4 bg-blue-50 rounded-lg">
-                  <p className="text-sm text-blue-900 font-medium mb-2">Example from "Marketing Brief"</p>
-                  <p className="text-sm text-blue-800">
-                    "We need to <mark className="bg-blue-200">leverage</mark> our existing customer base to <mark className="bg-blue-200">optimize</mark> conversion rates..."
-                  </p>
-                </div>
-                
-                <div className="p-4 bg-blue-50 rounded-lg">
-                  <p className="text-sm text-blue-900 font-medium mb-2">Example from "Project Update"</p>
-                  <p className="text-sm text-blue-800">
-                    "The team will <mark className="bg-blue-200">integrate</mark> these changes to <mark className="bg-blue-200">leverage</mark> better outcomes..."
-                  </p>
-                </div>
-                
-                <div className="p-4 bg-blue-50 rounded-lg">
-                  <p className="text-sm text-blue-900 font-medium mb-2">Pattern Analysis</p>
-                  <ul className="text-sm text-blue-800 space-y-1">
-                    <li>• "leverage" appears 12 times (top 5% usage)</li>
-                    <li>• "optimize" appears 8 times (top 10% usage)</li>
-                    <li>• Often paired with business contexts</li>
-                  </ul>
-                </div>
+                {(() => {
+                  const selectedTrait = profileData.traits?.trait_summary?.signature_traits?.find(
+                    trait => trait.name === selectedProof
+                  )
+                  
+                  if (!selectedTrait) {
+                    return (
+                      <div className="text-center py-8">
+                        <p className="text-gray-500 mb-2">No trait details available yet</p>
+                        <p className="text-sm text-gray-400">This trait will have more details once analyzed</p>
+                      </div>
+                    )
+                  }
+                  
+                  return (
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-900 font-medium mb-2">Trait Analysis</p>
+                      <div className="text-sm text-blue-800 space-y-2">
+                        <p><strong>Description:</strong> {selectedTrait.description}</p>
+                        <p><strong>Category:</strong> {selectedTrait.category}</p>
+                        <p><strong>Strength:</strong> {Math.round(selectedTrait.strength * 100)}%</p>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           </div>
         )}
-      </div>
-    </AppLayout>
+        </div>
+      </AppLayout>
+    </ErrorBoundary>
   )
 }

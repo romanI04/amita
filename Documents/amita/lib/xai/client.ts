@@ -18,6 +18,56 @@ export class XAIClient {
     })
   }
 
+  /**
+   * General chat completions method for any text generation task
+   */
+  async chatCompletion(options: {
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+    model?: string
+    temperature?: number
+    max_tokens?: number
+    stream?: boolean
+  }): Promise<{ content: string; metadata?: any }> {
+    if (!this.apiKey) {
+      throw new Error('XAI API key not configured')
+    }
+
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`
+      },
+      body: JSON.stringify({
+        model: options.model || 'grok-4',
+        messages: options.messages,
+        temperature: options.temperature || 0.7,
+        max_tokens: options.max_tokens || 1024,
+        stream: options.stream || false
+      })
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      console.error('XAI Chat API error:', error)
+      throw new Error(`XAI Chat API error: ${response.status} - ${error}`)
+    }
+
+    const result = await response.json()
+    
+    // Extract content from the response
+    const content = result.choices?.[0]?.message?.content || ''
+    
+    return {
+      content,
+      metadata: {
+        model: result.model,
+        usage: result.usage,
+        finish_reason: result.choices?.[0]?.finish_reason
+      }
+    }
+  }
+
   async analyze(text: string, userId: string): Promise<AnalysisResponse> {
     console.log('Starting XAI analysis for user:', userId, 'text length:', text.length)
     

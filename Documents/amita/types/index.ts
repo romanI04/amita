@@ -13,6 +13,7 @@ export interface Profile {
   writing_level?: 'beginner' | 'intermediate' | 'advanced' | 'professional';
   ai_usage_frequency?: 'never' | 'rarely' | 'sometimes' | 'often' | 'always';
   primary_goals?: string[];
+  onboarded?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -149,12 +150,17 @@ export interface AnalysisRequest {
 }
 
 export interface AnalysisResponse {
+  id?: string;
   ai_confidence_score: number;
   authenticity_score: number;
   voice_fingerprint: VoiceFingerprint;
   detected_sections: AIDetectedSection[];
   improvement_suggestions: string[];
   style_analysis: StyleCharacteristics;
+  overall_score?: {
+    authenticity: number;
+    ai_likelihood: number;
+  };
 }
 
 export interface XAIAnalysisRequest {
@@ -185,4 +191,96 @@ export interface XAIAnalysisResponse {
     completion_tokens: number;
     total_tokens: number;
   };
+}
+
+// Voiceprint Types
+export interface Voiceprint {
+  id: string;
+  user_id: string;
+  name: string;
+  language: string;
+  status: 'active' | 'computing' | 'failed';
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VoiceprintSample {
+  id: string;
+  voiceprint_id: string;
+  title: string;
+  source: string;
+  content: string;
+  word_count: number;
+  created_at: string;
+}
+
+export interface StylometricMetrics {
+  typeTokenRatio: number;
+  uniqueWordRatio: number;
+  averageWordLength: number;
+  averageSentenceLength: number;
+  sentenceLengthStdDev: number;
+  complexSentenceRatio: number;
+  punctuationDensity: Record<string, number>;
+  clauseRatio: number;
+  passiveVoiceRatio: number;
+  rareWordRatio: number;
+  clicheRatio: number;
+  formalityScore: number;
+}
+
+export interface SemanticSignature {
+  centroidVector: number[] | null;
+  semanticCohesion: number;
+  topicDiversity: number;
+  distinctiveUnigrams: Array<{ word: string; frequency: number; distinctiveness: number }>;
+  distinctiveBigrams: Array<{ phrase: string; frequency: number; distinctiveness: number }>;
+  distinctiveTrigrams: Array<{ phrase: string; frequency: number; distinctiveness: number }>;
+  vocabularyRichness: number;
+  conceptualDepth: number;
+  writingTempo: number;
+}
+
+export interface VoiceprintTraits {
+  id: string;
+  voiceprint_id: string;
+  version: number;
+  stylometric_metrics: StylometricMetrics;
+  semantic_signature: SemanticSignature;
+  trait_summary: {
+    signature_traits: SignatureTrait[];
+    pitfalls: Pitfall[];
+    summary: string;
+  };
+  target_thresholds: TargetThresholds;
+  created_at: string;
+}
+
+export interface SignatureTrait {
+  id: string;
+  name: string;
+  description: string;
+  strength: number;
+  category: 'lexical' | 'structural' | 'semantic' | 'stylistic';
+}
+
+export interface Pitfall {
+  id: string;
+  name: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high';
+  suggestion: string;
+  category: 'clarity' | 'engagement' | 'consistency' | 'formality';
+}
+
+export interface TargetThresholds {
+  typeTokenRatio: { min: number; max: number; optimal: number };
+  averageWordLength: { min: number; max: number; optimal: number };
+  averageSentenceLength: { min: number; max: number; optimal: number };
+  complexSentenceRatio: { min: number; max: number; optimal: number };
+  formalityScore: { min: number; max: number; optimal: number };
+  vocabularyRichness: { min: number; max: number; optimal: number };
+  semanticCohesion: { min: number; max: number; optimal: number };
+  conceptualDepth: { min: number; max: number; optimal: number };
 }

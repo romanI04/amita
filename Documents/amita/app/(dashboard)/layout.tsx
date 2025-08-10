@@ -25,17 +25,17 @@ export default function DashboardLayout({
         return
       }
 
-      // If user exists but no profile is found and not already on onboarding
-      if (!profile && pathname !== '/onboarding') {
-        console.log('No profile found, redirecting to onboarding')
+      // If user needs onboarding (no profile or not onboarded) and not already on onboarding
+      if ((!profile || !profile.onboarded) && pathname !== '/onboarding') {
+        console.log('User needs onboarding, redirecting...')
         setHasRedirected(true)
         router.push('/onboarding')
         return
       }
 
-      // If profile exists but user is on onboarding, redirect to dashboard
-      if (profile && pathname === '/onboarding') {
-        console.log('Profile exists and on onboarding page, redirecting to dashboard')
+      // If user has completed onboarding but is on onboarding page, redirect to dashboard
+      if (profile && profile.onboarded && pathname === '/onboarding') {
+        console.log('User has completed onboarding, redirecting to dashboard')
         setHasRedirected(true)
         router.push('/dashboard')
         return

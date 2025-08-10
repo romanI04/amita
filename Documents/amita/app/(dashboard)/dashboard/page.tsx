@@ -3,11 +3,12 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth/context'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useVoiceProfile, useVoiceProfileSelectors } from '@/lib/context/VoiceProfileContext'
+import { useProfileUpdates, useSampleEvents } from '@/lib/events/VoiceProfileEvents'
 import { Button } from '@/components/ui/Button'
 import { PlusIcon, DocumentTextIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import AppLayout from '@/components/layout/AppLayout'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 
 interface RecentAnalysis {
   id: string;
@@ -21,10 +22,36 @@ export default function DashboardPage() {
   const { user, profile, loading } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { state: voiceProfileState } = useVoiceProfile()
+  const selectors = useVoiceProfileSelectors()
+  
   const [showVoiceprintSuccess, setShowVoiceprintSuccess] = useState(false)
-  const [recentAnalyses, setRecentAnalyses] = useState<RecentAnalysis[]>([])
-  const [analysisCount, setAnalysisCount] = useState(0)
-  const [isLoadingData, setIsLoadingData] = useState(true)
+  const [profileUpdateNotification, setProfileUpdateNotification] = useState<string | null>(null)
+  
+  // Get data from shared state
+  const recentAnalyses: RecentAnalysis[] = selectors.getRecentSamples().map(sample => ({
+    id: sample.id,
+    title: sample.title || 'Untitled Analysis',
+    created_at: sample.created_at,
+    ai_confidence_score: Number(sample.ai_confidence_score) || 0,
+    authenticity_score: Number(sample.authenticity_score) || 0
+  }))
+
+  // Listen for profile updates to show real-time notifications
+  useProfileUpdates((data) => {
+    if (data.reason === 'add_sample') {
+      setProfileUpdateNotification(`Profile strengthened (+${data.coverage.wordCount - voiceProfileState.coverage.wordCount} words). Suggestions updated.`)
+      setTimeout(() => setProfileUpdateNotification(null), 5000)
+    }
+  })
+
+  // Listen for sample events to show real-time feedback
+  useSampleEvents((eventType, data) => {
+    if (eventType === 'sample.analyzed') {
+      setProfileUpdateNotification(`Sample analyzed. Integrity: ${Math.round(data.integrity)}, Risk: ${Math.round(data.risk)}%`)
+      setTimeout(() => setProfileUpdateNotification(null), 4000)
+    }
+  })
 
   // Redirect to onboarding if user hasn't completed it
   useEffect(() => {
@@ -45,51 +72,7 @@ export default function DashboardPage() {
     }
   }, [searchParams])
 
-  // Load user's analyses data
-  useEffect(() => {
-    if (!user || loading) return
-
-    const loadAnalysesData = async () => {
-      try {
-        const supabase = createClient()
-        
-        // Get recent analyses
-        const { data: analyses, error: analysesError } = await supabase
-          .from('writing_samples')
-          .select('id, title, created_at, ai_confidence_score, authenticity_score')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(5)
-
-        if (analysesError) {
-          console.error('Error loading analyses:', analysesError)
-        } else {
-          setRecentAnalyses(analyses || [])
-        }
-
-        // Get total count for this month
-        const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM format
-        const { count, error: countError } = await supabase
-          .from('writing_samples')
-          .select('id', { count: 'exact' })
-          .eq('user_id', user.id)
-          .gte('created_at', `${currentMonth}-01`)
-          .lt('created_at', `${currentMonth}-31`)
-
-        if (countError) {
-          console.error('Error loading count:', countError)
-        } else {
-          setAnalysisCount(count || 0)
-        }
-      } catch (error) {
-        console.error('Error loading dashboard data:', error)
-      } finally {
-        setIsLoadingData(false)
-      }
-    }
-
-    loadAnalysesData()
-  }, [user, loading])
+  // Data is now loaded via VoiceProfileProvider - no manual loading needed
 
   // Show loading while checking onboarding status
   if (loading || (user && (!profile || !profile.onboarded))) {
@@ -123,6 +106,23 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* Real-time Profile Update Notification */}
+        {profileUpdateNotification && (
+          <div className="bg-blue-50 border-b border-blue-200 px-6 py-4 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <p className="text-blue-800 font-medium">
+                {profileUpdateNotification}
+              </p>
+              <button
+                onClick={() => setProfileUpdateNotification(null)}
+                className="text-blue-600 hover:text-blue-800"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Main Content */}
         <div className="p-8">
           {/* Header */}
@@ -145,7 +145,7 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <h3 className="font-medium text-gray-900">Analyze Text</h3>
-                    <p className="text-sm text-gray-500">{analysisCount}/25 this month</p>
+                    <p className="text-sm text-gray-500">{voiceProfileState.coverage.sampleCount}/25 this month</p>
                   </div>
                 </div>
               </div>
@@ -184,7 +184,7 @@ export default function DashboardPage() {
               <h2 className="text-lg font-medium text-gray-900">Recent Activity</h2>
             </div>
             
-            {isLoadingData ? (
+            {voiceProfileState.isLoading ? (
               <div className="p-8 text-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
                 <p className="text-gray-600">Loading your analyses...</p>
@@ -247,9 +247,10 @@ export default function DashboardPage() {
                   Start by analyzing your first piece of writing to build your voice profile and get insights.
                 </p>
                 <Link href="/analyze">
-                  <Button className="bg-gray-900 text-white hover:bg-gray-800">
-                    <PlusIcon className="w-4 h-4 mr-2" />
-                    Analyze Your First Text
+                  <Button className="bg-gray-900 text-white hover:bg-gray-800 flex items-center space-x-2">
+                    <PlusIcon className="w-4 h-4" />
+                    <span>Analyze Your First Text</span>
+                    <SparklesIcon className="w-4 h-4" />
                   </Button>
                 </Link>
               </div>
