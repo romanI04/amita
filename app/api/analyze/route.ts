@@ -324,8 +324,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Prepare the complete response payload that matches AnalysisResponse interface
-    const response: AnalysisResponse = {
+    const response: AnalysisResponse & { content: string } = {
       id: sampleData?.id, // Include the sample ID if available
+      content: text, // Include the original text for consistency
       ai_confidence_score: analysis.ai_confidence_score ?? 0,
       authenticity_score: analysis.authenticity_score ?? 85,
       voice_fingerprint: analysis.voice_fingerprint ?? {

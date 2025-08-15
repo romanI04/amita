@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth/context'
@@ -14,9 +14,57 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<{ email?: string; password?: string; general?: string }>({})
+  const [initialCheckComplete, setInitialCheckComplete] = useState(false)
+  const [redirecting, setRedirecting] = useState(false)
   
-  const { signIn, profile } = useAuth()
+  const { signIn, user, loading: authLoading } = useAuth()
   const router = useRouter()
+  
+  // Auto-redirect if already authenticated with smooth transition
+  useEffect(() => {
+    // Wait a moment for auth to stabilize
+    const timer = setTimeout(() => {
+      setInitialCheckComplete(true)
+      if (!authLoading && user) {
+        setRedirecting(true)
+        // Small delay for visual feedback
+        setTimeout(() => {
+          router.push('/dashboard')
+        }, 500)
+      }
+    }, 300)
+    
+    return () => clearTimeout(timer)
+  }, [user, authLoading, router])
+  
+  // Show loading while checking auth status initially
+  if (!initialCheckComplete || authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-soft">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 text-sm">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+  
+  // Show redirecting message
+  if (redirecting) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-soft">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Redirecting to dashboard...</p>
+        </div>
+      </div>
+    )
+  }
+  
+  // If user is authenticated but not redirecting yet, don't show form
+  if (user) {
+    return null
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,10 +94,34 @@ export default function LoginPage() {
       const { error } = await signIn(email, password)
       
       if (error) {
+        // More specific error messages based on Supabase error codes
         if (error.message.includes('Invalid login credentials')) {
-          setErrors({ general: 'Invalid email or password. Please check your credentials and try again.' })
-        } else if (error.message.includes('Email not confirmed')) {
-          setErrors({ general: 'Please check your email and click the confirmation link before signing in.' })
+          setErrors({ 
+            general: 'The email or password you entered is incorrect. Please double-check and try again.',
+            password: 'Incorrect password or email'
+          })
+        } else if (error.message.includes('Email not confirmed') || error.message.includes('not confirmed')) {
+          // Store email for resend link
+          const resendLink = `/verify-email?email=${encodeURIComponent(email)}`
+          setErrors({ 
+            general: (
+              <span>
+                Your email address hasn't been verified yet. 
+                <Link href={resendLink} className="ml-1 text-primary-600 hover:text-primary-500 underline font-medium">
+                  Resend verification email
+                </Link>
+              </span>
+            ) as any
+          })
+        } else if (error.message.includes('User not found')) {
+          setErrors({ 
+            general: 'No account found with this email address. Please sign up first.',
+            email: 'Email not found'
+          })
+        } else if (error.message.includes('rate limit') || error.message.includes('too many')) {
+          setErrors({ 
+            general: 'Too many login attempts. Please wait a few minutes and try again.'
+          })
         } else {
           setErrors({ general: error.message })
         }

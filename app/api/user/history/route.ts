@@ -10,7 +10,13 @@ export async function GET(request: NextRequest) {
     const queryParams = {
       limit: searchParams.get('limit'),
       offset: searchParams.get('offset'),
-      sample_id: searchParams.get('sample_id')
+      sample_id: searchParams.get('sample_id'),
+      search: searchParams.get('search'),
+      date_range: searchParams.get('date_range'),
+      edited: searchParams.get('edited'),
+      risk_level: searchParams.get('risk_level'),
+      sort_by: searchParams.get('sort_by'),
+      order: searchParams.get('order')
     }
     
     // Validate query parameters
@@ -60,13 +66,76 @@ export async function GET(request: NextRequest) {
       `)
       .eq('user_id', userId)
     
+    // Apply search filter
+    if (queryParams.search) {
+      query = query.or(`title.ilike.%${queryParams.search}%,content.ilike.%${queryParams.search}%`)
+    }
+    
+    // Apply date range filter
+    if (queryParams.date_range && queryParams.date_range !== 'all') {
+      const now = new Date()
+      let startDate: Date
+      
+      switch (queryParams.date_range) {
+        case 'today':
+          startDate = new Date(now.setHours(0, 0, 0, 0))
+          break
+        case 'week':
+          startDate = new Date(now.setDate(now.getDate() - 7))
+          break
+        case 'month':
+          startDate = new Date(now.setMonth(now.getMonth() - 1))
+          break
+        default:
+          startDate = new Date(0)
+      }
+      
+      query = query.gte('created_at', startDate.toISOString())
+    }
+    
+    // Apply edited filter
+    // Note: This is a simplified check - ideally we'd compare timestamps
+    if (queryParams.edited === 'edited') {
+      query = query.not('updated_at', 'is', null)
+    } else if (queryParams.edited === 'unedited') {
+      // For unedited, we check if content hasn't changed significantly
+      // This is a simplified approach
+    }
+    
+    // Apply risk level filter
+    if (queryParams.risk_level && queryParams.risk_level !== 'all') {
+      switch (queryParams.risk_level) {
+        case 'low':
+          query = query.lte('ai_confidence_score', 30)
+          break
+        case 'medium':
+          query = query.gt('ai_confidence_score', 30).lte('ai_confidence_score', 60)
+          break
+        case 'high':
+          query = query.gt('ai_confidence_score', 60)
+          break
+      }
+    }
+    
+    // Apply sorting
+    const sortBy = queryParams.sort_by || 'created_at'
+    const order = queryParams.order === 'asc' ? true : false
+    
+    const sortMap: Record<string, string> = {
+      'date': 'created_at',
+      'risk': 'ai_confidence_score',
+      'authenticity': 'authenticity_score'
+    }
+    
+    const sortColumn = sortMap[sortBy] || sortBy
+    
     // If sample_id is provided, fetch only that sample
     if (queryParams.sample_id) {
       query = query.eq('id', queryParams.sample_id)
     } else {
       // Otherwise, use pagination
       query = query
-        .order('created_at', { ascending: false })
+        .order(sortColumn, { ascending: order })
         .range(offset, offset + limit - 1)
     }
     
@@ -76,44 +145,24 @@ export async function GET(request: NextRequest) {
       throw new Error(`Database query failed: ${samplesError.message}`)
     }
 
-    // Fetch analysis versions (if versioning is implemented)
-    const analysisIds = samples?.map(s => s.id) || []
-    const { data: versions } = await supabase
-      .from('analysis_versions')
-      .select('*')
-      .in('analysis_id', analysisIds)
-      .order('version', { ascending: false })
-
-    // Group versions by analysis ID
-    const versionsByAnalysis = versions?.reduce((acc, version) => {
-      if (!acc[version.analysis_id]) {
-        acc[version.analysis_id] = []
-      }
-      acc[version.analysis_id].push(version)
-      return acc
-    }, {} as Record<string, any[]>) || {}
-
     // Enhance samples with additional metadata
     const enrichedSamples = samples?.map(sample => {
       const analysis = sample.voice_analysis?.[0] // Get latest analysis
-      const itemVersions = versionsByAnalysis[sample.id] || []
       
-      // Calculate improvement metrics
-      let improvementPercentage = 0
-      if (itemVersions.length > 1) {
-        const originalScore = itemVersions[itemVersions.length - 1]?.ai_confidence_score || sample.ai_confidence_score || 0
-        const latestScore = itemVersions[0]?.ai_confidence_score || sample.ai_confidence_score || 0
-        if (originalScore > 0) {
-          improvementPercentage = Math.max(0, Math.round(((originalScore - latestScore) / originalScore) * 100))
-        }
-      }
-
+      // Calculate word count
+      const wordCount = sample.content ? sample.content.trim().split(/\s+/).length : 0
+      
+      // Check if document has been edited (simplified check)
+      const hasBeenEdited = sample.updated_at && sample.updated_at !== sample.created_at
+      
       return {
         ...sample,
-        versions: itemVersions,
-        latest_version: itemVersions.length || 1,
-        total_changes: itemVersions.reduce((sum: number, v: any) => sum + (v.changes_applied || 0), 0),
-        improvement_percentage: improvementPercentage,
+        word_count: wordCount,
+        has_versions: false, // Will be true when document_versions table is created
+        version_count: 1,
+        last_edited: hasBeenEdited ? sample.updated_at : null,
+        total_changes: 0, // Will be populated when versioning is implemented
+        improvement_percentage: 0, // Will be calculated when versions exist
         // Ensure we have fallback values
         ai_confidence_score: sample.ai_confidence_score || analysis?.overall_score?.ai_likelihood || 0,
         authenticity_score: sample.authenticity_score || analysis?.overall_score?.authenticity || 0

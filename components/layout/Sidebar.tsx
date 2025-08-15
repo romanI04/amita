@@ -11,7 +11,8 @@ import {
   UserCircleIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
-  CloudArrowUpIcon
+  CloudArrowUpIcon,
+  CreditCardIcon
 } from '@heroicons/react/24/outline'
 
 const navigation = [
@@ -20,6 +21,7 @@ const navigation = [
   { name: 'Upload', href: '/upload', icon: CloudArrowUpIcon },
   { name: 'History', href: '/history', icon: ChartBarIcon },
   { name: 'Profile', href: '/profile', icon: UserCircleIcon },
+  { name: 'Pricing', href: '/pricing', icon: CreditCardIcon },
 ]
 
 const bottomNavigation = [
@@ -94,9 +96,11 @@ export default function Sidebar() {
             </div>
           </div>
           
-          <button className="w-full bg-primary-600 text-white text-sm font-medium py-2 px-3 rounded-lg hover:bg-primary-700 transition-colors">
-            Upgrade plan
-          </button>
+          <Link href="/pricing">
+            <button className="w-full bg-primary-600 text-white text-sm font-medium py-2 px-3 rounded-lg hover:bg-primary-700 transition-colors">
+              Upgrade plan
+            </button>
+          </Link>
         </div>
       </div>
 

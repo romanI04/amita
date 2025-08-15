@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
             content: prompt
           }
         ],
-        model: 'grok-4',
+        model: 'grok-4-latest',
         temperature: 0.2,
         max_tokens: Math.max(500, originalText.length * 1.5)
       })
@@ -66,9 +66,11 @@ export async function POST(request: NextRequest) {
       // Parse the JSON response from Grok with solid fallback
       let suggestionResult
       try {
-        suggestionResult = JSON.parse(suggestionResponse.content.trim())
+        const { jsonrepair } = await import('jsonrepair')
+        const repairedContent = jsonrepair(suggestionResponse.content.trim())
+        suggestionResult = JSON.parse(repairedContent)
       } catch (parseError) {
-        console.error('JSON parse failed, using fallback response:', parseError, suggestionResponse.content)
+        console.error('JSON parse failed, using fallback response:', parseError, suggestionResponse.content?.substring(0, 500))
         
         // Return safe fallback response instead of throwing
         return NextResponse.json({

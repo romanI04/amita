@@ -1,0 +1,311 @@
+/* Content Script Styles */
+
+/* Field Indicator */
+.amita-field-indicator {
+  position: absolute;
+  z-index: 10000;
+  pointer-events: auto;
+}
+
+.amita-indicator-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  color: white;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+  transition: all 0.2s;
+}
+
+.amita-indicator-badge:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.amita-logo {
+  font-size: 12px;
+}
+
+/* Loading Overlay */
+.amita-loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999999;
+}
+
+.amita-loader {
+  background: white;
+  padding: 24px 32px;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.amita-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #10B981;
+  border-radius: 50%;
+  animation: amita-spin 1s linear infinite;
+}
+
+@keyframes amita-spin {
+  to { transform: rotate(360deg); }
+}
+
+.amita-loading-text {
+  color: #374151;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Results Overlay */
+.amita-results-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999999;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.amita-results-container {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.amita-results-header {
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.amita-results-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.amita-close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.amita-close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.amita-results-content {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.amita-score-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.amita-score-item {
+  text-align: center;
+  padding: 16px;
+  border-radius: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.amita-score-label {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.amita-score-value {
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.amita-score-good {
+  color: #10B981;
+}
+
+.amita-score-medium {
+  color: #f59e0b;
+}
+
+.amita-score-bad {
+  color: #ef4444;
+}
+
+.amita-flagged-sections {
+  margin-bottom: 24px;
+}
+
+.amita-flagged-sections h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 12px 0;
+}
+
+.amita-sections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.amita-section-item {
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.amita-section-text {
+  font-size: 13px;
+  color: #374151;
+  margin-bottom: 6px;
+  font-style: italic;
+}
+
+.amita-section-reason {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.amita-apply-btn {
+  padding: 6px 12px;
+  background: white;
+  border: 1px solid #10B981;
+  color: #10B981;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.amita-apply-btn:hover {
+  background: #10B981;
+  color: white;
+}
+
+.amita-apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.amita-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.amita-btn {
+  flex: 1;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.amita-btn-primary {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  color: white;
+}
+
+.amita-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.amita-btn-secondary {
+  background: white;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+}
+
+.amita-btn-secondary:hover {
+  background: #f9fafb;
+}
+
+/* Toast Notifications */
+.amita-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #374151;
+  color: white;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateX(400px);
+  transition: transform 0.3s;
+  z-index: 999999;
+}
+
+.amita-toast-show {
+  transform: translateX(0);
+}
+
+.amita-toast-success {
+  background: #10B981;
+}
+
+.amita-toast-error {
+  background: #ef4444;
+}
+
+.amita-toast-warning {
+  background: #f59e0b;
+}

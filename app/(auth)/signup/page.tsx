@@ -1,19 +1,22 @@
 'use client'
 
-import React, { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import React, { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth/context'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card'
 import { validateEmail, validatePassword } from '@/lib/utils'
+import { GiftIcon } from '@heroicons/react/24/outline'
 
 export default function SignUpPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [referralCode, setReferralCode] = useState<string | null>(null)
+  const [referralApplied, setReferralApplied] = useState(false)
   const [errors, setErrors] = useState<{ 
     email?: string
     password?: string
@@ -21,8 +24,38 @@ export default function SignUpPage() {
     general?: string 
   }>({})
   
-  const { signUp } = useAuth()
+  const { signUp, user, loading: authLoading } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  // Check for referral code in URL
+  useEffect(() => {
+    const ref = searchParams.get('ref')
+    if (ref) {
+      setReferralCode(ref)
+    }
+  }, [searchParams])
+  
+  // Auto-redirect if already authenticated
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.push('/dashboard')
+    }
+  }, [user, authLoading, router])
+  
+  // Show loading while checking auth status
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-soft">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
+  
+  // If user is authenticated, they'll be redirected
+  if (user) {
+    return null
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -75,6 +108,23 @@ export default function SignUpPage() {
           setErrors({ general: error.message })
         }
       } else {
+        // Apply referral code if present
+        if (referralCode && !referralApplied) {
+          try {
+            const response = await fetch('/api/referral/apply', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code: referralCode })
+            })
+            
+            if (response.ok) {
+              setReferralApplied(true)
+            }
+          } catch (error) {
+            console.error('Failed to apply referral code:', error)
+          }
+        }
+        
         // Show success message and redirect to check email
         router.push('/verify-email?email=' + encodeURIComponent(email))
       }
@@ -106,6 +156,20 @@ export default function SignUpPage() {
           </CardHeader>
           
           <CardContent>
+            {referralCode && (
+              <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center gap-2">
+                  <GiftIcon className="h-5 w-5 text-green-600" />
+                  <p className="text-sm font-medium text-green-800">
+                    Referral code applied: {referralCode}
+                  </p>
+                </div>
+                <p className="text-xs text-green-600 mt-1">
+                  You'll receive 1 free month after signing up!
+                </p>
+              </div>
+            )}
+            
             <form onSubmit={handleSubmit} className="space-y-6">
               {errors.general && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">

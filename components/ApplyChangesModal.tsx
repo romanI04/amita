@@ -58,18 +58,15 @@ export function ApplyChangesModal({
     setIsApplying(true)
     
     try {
-      // Simulate per-section progress
-      for (const sectionId of selectedSections) {
-        await new Promise(resolve => setTimeout(resolve, 300))
-        setAppliedSections(prev => [...prev, sectionId])
-      }
-      
+      // Apply all changes immediately - no simulated delays
       await onApply(selectedSections)
+      setAppliedSections(selectedSections)
       setCurrentStep('complete')
       
+      // Close quickly after success
       setTimeout(() => {
         onClose()
-      }, 2000)
+      }, 1000)
     } catch (error) {
       console.error('Failed to apply changes:', error)
       setFailedSections(selectedSections.filter(id => !appliedSections.includes(id)))

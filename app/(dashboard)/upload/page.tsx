@@ -11,9 +11,14 @@ import {
   DocumentTextIcon,
   CloudArrowUpIcon,
   ExclamationTriangleIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  XMarkIcon,
+  ArrowPathIcon,
+  DocumentIcon,
+  SparklesIcon
 } from '@heroicons/react/24/outline'
 import AppLayout from '@/components/layout/AppLayout'
+import { motion, AnimatePresence } from 'framer-motion'
 
 const ACCEPTED_FILE_TYPES = {
   'text/plain': ['.txt'],
@@ -23,357 +28,435 @@ const ACCEPTED_FILE_TYPES = {
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
 
-export default function UploadPage() {
-  const [uploading, setUploading] = useState(false)
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [analysisResults, setAnalysisResults] = useState<any[]>([])
+interface FileUploadStatus {
+  file: File
+  status: 'pending' | 'uploading' | 'processing' | 'success' | 'error'
+  progress: number
+  result?: any
+  error?: string
+}
 
+export default function UploadPage() {
+  const [fileStatuses, setFileStatuses] = useState<FileUploadStatus[]>([])
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
+  
   const { user } = useAuth()
   const router = useRouter()
   const { showToast } = useToast()
 
   const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
-    setError(null)
-    setSuccess(null)
-
+    // Handle rejected files
     if (rejectedFiles.length > 0) {
-      const rejection = rejectedFiles[0]
-      if (rejection.errors[0]?.code === 'file-too-large') {
-        setError('File is too large. Maximum size is 5MB.')
-      } else if (rejection.errors[0]?.code === 'file-invalid-type') {
-        setError('Invalid file type. Please upload TXT, PDF, or DOCX files.')
-      } else {
-        setError('Failed to upload file. Please try again.')
-      }
-      return
+      rejectedFiles.forEach(rejection => {
+        let errorMsg = 'Failed to add file'
+        if (rejection.errors[0]?.code === 'file-too-large') {
+          errorMsg = `${rejection.file.name}: File is too large (max 5MB)`
+        } else if (rejection.errors[0]?.code === 'file-invalid-type') {
+          errorMsg = `${rejection.file.name}: Invalid file type`
+        }
+        showToast(errorMsg, 'error')
+      })
     }
 
+    // Add accepted files to status list
     if (acceptedFiles.length > 0) {
-      setUploadedFiles(acceptedFiles)
-      setSuccess(`${acceptedFiles.length} file(s) ready for processing`)
+      const newStatuses = acceptedFiles.map(file => ({
+        file,
+        status: 'pending' as const,
+        progress: 0
+      }))
+      
+      setFileStatuses(prev => [...prev, ...newStatuses])
+      showToast(`Added ${acceptedFiles.length} file(s) for processing`, 'success')
     }
-  }, [])
+  }, [showToast])
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps } = useDropzone({
     onDrop,
     accept: ACCEPTED_FILE_TYPES,
     maxSize: MAX_FILE_SIZE,
-    maxFiles: 5,
-    multiple: true
+    maxFiles: 10,
+    multiple: true,
+    disabled: isProcessing
   })
 
+  const removeFile = (index: number) => {
+    setFileStatuses(prev => prev.filter((_, i) => i !== index))
+  }
+
   const processFiles = async () => {
-    if (!user || uploadedFiles.length === 0) return
-
-    setUploading(true)
-    setError(null)
-    setAnalysisResults([])
-
-    try {
-      const results = []
-      for (const file of uploadedFiles) {
+    if (!user || fileStatuses.length === 0) return
+    
+    setIsProcessing(true)
+    
+    // Process files sequentially with individual progress
+    for (let i = 0; i < fileStatuses.length; i++) {
+      const fileStatus = fileStatuses[i]
+      
+      // Skip already processed files
+      if (fileStatus.status === 'success') continue
+      
+      try {
+        // Update status to uploading
+        setFileStatuses(prev => prev.map((fs, idx) => 
+          idx === i ? { ...fs, status: 'uploading', progress: 20 } : fs
+        ))
+        
         const formData = new FormData()
-        formData.append('file', file)
+        formData.append('file', fileStatus.file)
         formData.append('user_id', user.id)
-
-        const response = await fetch('/api/upload', {
+        
+        // Upload file
+        const uploadResponse = await fetch('/api/upload', {
           method: 'POST',
           credentials: 'same-origin',
           body: formData
         })
-
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || `Failed to process ${file.name}`)
+        
+        // Update progress
+        setFileStatuses(prev => prev.map((fs, idx) => 
+          idx === i ? { ...fs, progress: 50 } : fs
+        ))
+        
+        if (!uploadResponse.ok) {
+          const errorData = await uploadResponse.json()
+          throw new Error(errorData.error || 'Upload failed')
         }
-
-        const result = await response.json()
-        results.push({
-          fileName: file.name,
-          wordCount: result.wordCount,
-          analysis: result.analysis,
-          id: result.id
-        })
+        
+        const uploadResult = await uploadResponse.json()
+        
+        // Update to processing
+        setFileStatuses(prev => prev.map((fs, idx) => 
+          idx === i ? { ...fs, status: 'processing', progress: 70 } : fs
+        ))
+        
+        // If analysis is enabled, wait for it
+        if (uploadResult.analysis_id) {
+          // Simulate analysis progress
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          setFileStatuses(prev => prev.map((fs, idx) => 
+            idx === i ? { ...fs, progress: 90 } : fs
+          ))
+        }
+        
+        // Mark as success
+        setFileStatuses(prev => prev.map((fs, idx) => 
+          idx === i ? { 
+            ...fs, 
+            status: 'success', 
+            progress: 100,
+            result: uploadResult
+          } : fs
+        ))
+        
+      } catch (error) {
+        // Mark as error
+        setFileStatuses(prev => prev.map((fs, idx) => 
+          idx === i ? { 
+            ...fs, 
+            status: 'error', 
+            error: error instanceof Error ? error.message : 'Processing failed'
+          } : fs
+        ))
       }
-
-      setAnalysisResults(results)
-      setSuccess(`Successfully uploaded and analyzed ${uploadedFiles.length} file(s)!`)
-      setUploadedFiles([])
-
-    } catch (err) {
-      console.error('Upload error:', err)
-      setError(err instanceof Error ? err.message : 'Failed to process files')
-    } finally {
-      setUploading(false)
+    }
+    
+    setIsProcessing(false)
+    
+    // Show summary
+    const successCount = fileStatuses.filter(fs => fs.status === 'success').length
+    const errorCount = fileStatuses.filter(fs => fs.status === 'error').length
+    
+    if (successCount > 0) {
+      showToast(`Successfully processed ${successCount} file(s)`, 'success')
+    }
+    if (errorCount > 0) {
+      showToast(`${errorCount} file(s) failed to process`, 'error')
     }
   }
 
-  const removeFile = (index: number) => {
-    setUploadedFiles(files => files.filter((_, i) => i !== index))
-    if (uploadedFiles.length === 1) {
-      setSuccess(null)
+  const retryFile = async (index: number) => {
+    const fileStatus = fileStatuses[index]
+    
+    // Reset status
+    setFileStatuses(prev => prev.map((fs, idx) => 
+      idx === index ? { ...fs, status: 'pending', error: undefined, progress: 0 } : fs
+    ))
+    
+    // Reprocess
+    await processFiles()
+  }
+
+  const clearCompleted = () => {
+    setFileStatuses(prev => prev.filter(fs => fs.status !== 'success'))
+  }
+
+  const getStatusColor = (status: FileUploadStatus['status']) => {
+    switch (status) {
+      case 'pending': return 'bg-gray-100 text-gray-700'
+      case 'uploading': return 'bg-blue-100 text-blue-700'
+      case 'processing': return 'bg-yellow-100 text-yellow-700'
+      case 'success': return 'bg-green-100 text-green-700'
+      case 'error': return 'bg-red-100 text-red-700'
     }
   }
+
+  const getFileIcon = (fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase()
+    if (ext === 'pdf') return 'PDF'
+    if (ext === 'docx') return 'DOC'
+    return 'TXT'
+  }
+
+  const totalFiles = fileStatuses.length
+  const successFiles = fileStatuses.filter(fs => fs.status === 'success').length
+  const errorFiles = fileStatuses.filter(fs => fs.status === 'error').length
+  const pendingFiles = fileStatuses.filter(fs => fs.status === 'pending').length
 
   return (
     <AppLayout>
       <div className="flex-1 bg-gray-50">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-neutral-900 mb-2">
-            Upload Documents
-          </h1>
-          <p className="text-neutral-600">
-            Upload your documents to save them as writing samples for later analysis
-          </p>
-        </div>
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-neutral-900 mb-2">
+              Upload Documents
+            </h1>
+            <p className="text-neutral-600">
+              Upload multiple documents for batch processing and analysis
+            </p>
+          </div>
 
-        {/* Upload Area */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Document Upload</CardTitle>
-            <CardDescription>
-              Drag and drop files or click to browse. Supports TXT, PDF, and DOCX files up to 5MB each.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                isDragActive
-                  ? 'border-primary-400 bg-primary-50'
-                  : 'border-gray-300 hover:border-gray-400'
-              }`}
-            >
-              <input {...getInputProps()} />
-              <CloudArrowUpIcon className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-              {isDragActive ? (
-                <p className="text-lg text-primary-600">Drop the files here...</p>
-              ) : (
-                <div>
-                  <p className="text-lg text-gray-600 mb-2">
-                    Drag and drop your files here, or click to browse
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    TXT, PDF, DOCX • Max 5MB per file • Up to 5 files
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {error && (
-              <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center">
-                <ExclamationTriangleIcon className="h-5 w-5 text-red-500 mr-2 flex-shrink-0" />
-                <p className="text-sm text-red-600">{error}</p>
-              </div>
-            )}
-
-            {success && analysisResults.length > 0 && (
-              <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-center mb-3">
-                  <CheckCircleIcon className="h-5 w-5 text-green-500 mr-2 flex-shrink-0" />
-                  <p className="text-sm text-green-600 font-medium">{success}</p>
-                </div>
+          {/* Upload Area */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>Document Upload</CardTitle>
+              <CardDescription>
+                Drag and drop files or click to browse. Supports TXT, PDF, and DOCX files up to 5MB each.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div
+                {...getRootProps()}
+                onDragEnter={() => setDragActive(true)}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={() => setDragActive(false)}
+                className={`
+                  border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all
+                  ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}
+                  ${dragActive 
+                    ? 'border-primary-400 bg-primary-50 scale-[1.02]' 
+                    : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                  }
+                `}
+              >
+                <input {...getInputProps()} />
+                <CloudArrowUpIcon className={`mx-auto h-12 w-12 mb-4 transition-colors ${
+                  dragActive ? 'text-primary-500' : 'text-gray-400'
+                }`} />
                 
-                {/* Analysis Results */}
-                <div className="space-y-4 mb-4">
-                  {analysisResults.map((result, index) => (
-                    <div key={index} className="bg-white border border-green-200 rounded-lg p-4">
+                {dragActive ? (
+                  <motion.div
+                    initial={{ scale: 0.95 }}
+                    animate={{ scale: 1 }}
+                    className="text-lg text-primary-600 font-medium"
+                  >
+                    Drop your files here...
+                  </motion.div>
+                ) : (
+                  <div>
+                    <p className="text-lg text-gray-600 mb-2">
+                      {isProcessing 
+                        ? 'Processing files...' 
+                        : 'Drag and drop your files here, or click to browse'
+                      }
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      TXT, PDF, DOCX • Max 5MB per file • Up to 10 files
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* File Status List */}
+          {fileStatuses.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Files ({totalFiles})</CardTitle>
+                    <CardDescription>
+                      {successFiles > 0 && <span className="text-green-600">{successFiles} processed</span>}
+                      {successFiles > 0 && pendingFiles > 0 && ', '}
+                      {pendingFiles > 0 && <span className="text-gray-600">{pendingFiles} pending</span>}
+                      {errorFiles > 0 && <span className="text-red-600">, {errorFiles} failed</span>}
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {successFiles > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearCompleted}
+                      >
+                        Clear Completed
+                      </Button>
+                    )}
+                    <Button
+                      onClick={processFiles}
+                      disabled={isProcessing || pendingFiles === 0}
+                      size="sm"
+                      className="bg-primary-600 text-white hover:bg-primary-700"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <ArrowPathIcon className="h-4 w-4 animate-spin mr-2" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <SparklesIcon className="h-4 w-4 mr-2" />
+                          Process All
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <AnimatePresence>
+                  {fileStatuses.map((fileStatus, index) => (
+                    <motion.div
+                      key={`${fileStatus.file.name}-${index}`}
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: -100 }}
+                      className="border border-gray-200 rounded-lg p-4"
+                    >
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium text-gray-900">{result.fileName}</h4>
-                        <span className="text-sm text-gray-500">{result.wordCount} words</span>
+                        <div className="flex items-center gap-3 flex-1">
+                          <span className="text-2xl">{getFileIcon(fileStatus.file.name)}</span>
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">
+                              {fileStatus.file.name}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              {(fileStatus.file.size / 1024).toFixed(1)} KB
+                            </p>
+                          </div>
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(fileStatus.status)}`}>
+                            {fileStatus.status === 'uploading' && 'Uploading...'}
+                            {fileStatus.status === 'processing' && 'Analyzing...'}
+                            {fileStatus.status === 'success' && 'Complete'}
+                            {fileStatus.status === 'error' && 'Failed'}
+                            {fileStatus.status === 'pending' && 'Pending'}
+                          </span>
+                        </div>
+                        
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 ml-4">
+                          {fileStatus.status === 'error' && (
+                            <button
+                              onClick={() => retryFile(index)}
+                              className="p-1 text-gray-500 hover:text-gray-700"
+                              title="Retry"
+                            >
+                              <ArrowPathIcon className="h-4 w-4" />
+                            </button>
+                          )}
+                          {fileStatus.status === 'success' && fileStatus.result?.id && (
+                            <button
+                              onClick={() => router.push(`/analyze?sample_id=${fileStatus.result.id}`)}
+                              className="px-3 py-1 text-xs font-medium text-primary-600 bg-primary-50 rounded-lg hover:bg-primary-100"
+                            >
+                              View Analysis
+                            </button>
+                          )}
+                          {(fileStatus.status === 'pending' || fileStatus.status === 'error') && (
+                            <button
+                              onClick={() => removeFile(index)}
+                              className="p-1 text-gray-500 hover:text-red-600"
+                              title="Remove"
+                            >
+                              <XMarkIcon className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       
-                      {result.analysis ? (
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-600">Authenticity Score:</span>
-                            <div className="flex items-center space-x-2">
-                              <span className="font-semibold text-gray-900">
-                                {Math.round(result.analysis.authenticity_score || 0)}%
-                              </span>
-                              <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                result.analysis.authenticity_score >= 70 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : 'bg-yellow-100 text-yellow-800'
-                              }`}>
-                                {result.analysis.authenticity_score >= 70 ? 'High' : 'Medium'}
-                              </div>
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-gray-600">AI Detection Risk:</span>
-                            <div className="flex items-center space-x-2">
-                              <span className="font-semibold text-gray-900">
-                                {Math.round(result.analysis.ai_confidence_score || 0)}%
-                              </span>
-                              <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                result.analysis.ai_confidence_score <= 30 
-                                  ? 'bg-green-100 text-green-800'
-                                  : result.analysis.ai_confidence_score <= 60
-                                    ? 'bg-yellow-100 text-yellow-800'
-                                    : 'bg-red-100 text-red-800'
-                              }`}>
-                                {result.analysis.ai_confidence_score <= 30 ? 'Low' : 
-                                 result.analysis.ai_confidence_score <= 60 ? 'Medium' : 'High'} Risk
-                              </div>
-                            </div>
+                      {/* Progress Bar */}
+                      {(fileStatus.status === 'uploading' || fileStatus.status === 'processing') && (
+                        <div className="mt-3">
+                          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <motion.div
+                              className="h-full bg-gradient-to-r from-blue-500 to-primary-500"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${fileStatus.progress}%` }}
+                              transition={{ duration: 0.3 }}
+                            />
                           </div>
                         </div>
-                      ) : (
-                        <p className="text-sm text-gray-500">Analysis not available</p>
                       )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex items-center space-x-3">
-                  <Button
-                    onClick={() => router.push('/dashboard')}
-                    size="sm"
-                    className="bg-primary-600 text-white hover:bg-primary-700"
-                  >
-                    View in Dashboard
-                  </Button>
-                  <Button
-                    onClick={() => router.push('/analyze')}
-                    variant="outline"
-                    size="sm"
-                    className="border-primary-300 text-primary-700 hover:bg-primary-50"
-                  >
-                    Analyze More
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {success && analysisResults.length === 0 && (
-              <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-center mb-3">
-                  <CheckCircleIcon className="h-5 w-5 text-green-500 mr-2 flex-shrink-0" />
-                  <p className="text-sm text-green-600 font-medium">{success}</p>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <Button
-                    onClick={() => router.push('/dashboard')}
-                    size="sm"
-                    className="bg-primary-600 text-white hover:bg-primary-700"
-                  >
-                    View in Dashboard
-                  </Button>
-                  <Button
-                    onClick={() => router.push('/analyze')}
-                    variant="outline"
-                    size="sm"
-                    className="border-primary-300 text-primary-700 hover:bg-primary-50"
-                  >
-                    Analyze Now
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {uploadedFiles.length > 0 && (
-              <div className="mt-6">
-                <h4 className="font-medium text-gray-900 mb-3">Files to Process:</h4>
-                <div className="space-y-2">
-                  {uploadedFiles.map((file, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
-                      <div className="flex items-center">
-                        <DocumentTextIcon className="h-5 w-5 text-gray-400 mr-3" />
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">{file.name}</p>
-                          <p className="text-xs text-gray-500">
-                            {(file.size / 1024).toFixed(1)} KB • {file.type.split('/')[1].toUpperCase()}
-                          </p>
+                      
+                      {/* Error Message */}
+                      {fileStatus.error && (
+                        <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-lg">
+                          <p className="text-xs text-red-600">{fileStatus.error}</p>
                         </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeFile(index)}
-                        disabled={uploading}
-                      >
-                        Remove
-                      </Button>
-                    </div>
+                      )}
+                      
+                      {/* Success Details */}
+                      {fileStatus.status === 'success' && fileStatus.result && (
+                        <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-500">Words:</span>
+                            <p className="font-medium">{fileStatus.result.wordCount || 0}</p>
+                          </div>
+                          {fileStatus.result.analysis && (
+                            <>
+                              <div>
+                                <span className="text-gray-500">AI Risk:</span>
+                                <p className={`font-medium ${
+                                  fileStatus.result.analysis.ai_confidence_score < 30 ? 'text-green-600' :
+                                  fileStatus.result.analysis.ai_confidence_score < 60 ? 'text-yellow-600' :
+                                  'text-red-600'
+                                }`}>
+                                  {Math.round(fileStatus.result.analysis.ai_confidence_score)}%
+                                </p>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Authenticity:</span>
+                                <p className="font-medium text-green-600">
+                                  {Math.round(fileStatus.result.analysis.authenticity_score)}%
+                                </p>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </motion.div>
                   ))}
-                </div>
+                </AnimatePresence>
+              </CardContent>
+            </Card>
+          )}
 
-                <div className="flex justify-end mt-4">
-                  <Button
-                    onClick={processFiles}
-                    disabled={uploading}
-                    loading={uploading}
-                    size="lg"
-                  >
-                    {uploading ? 'Processing...' : `Process ${uploadedFiles.length} File(s)`}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Info Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">What happens next?</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3 text-sm">
-                <div className="flex items-start space-x-3">
-                  <div className="w-6 h-6 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-xs font-medium text-primary-600">1</span>
-                  </div>
-                  <p className="text-gray-600">Files are securely uploaded and text is extracted</p>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <div className="w-6 h-6 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-xs font-medium text-primary-600">2</span>
-                  </div>
-                  <p className="text-gray-600">Saved as writing samples in your dashboard</p>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <div className="w-6 h-6 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-xs font-medium text-primary-600">3</span>
-                  </div>
-                  <p className="text-gray-600">Analyze them individually when you're ready</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">File Requirements</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 text-sm text-gray-600">
-                <div className="flex justify-between">
-                  <span>Supported formats:</span>
-                  <span className="font-medium">TXT, PDF, DOCX</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Maximum file size:</span>
-                  <span className="font-medium">5MB</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Files per upload:</span>
-                  <span className="font-medium">Up to 5</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Processing time:</span>
-                  <span className="font-medium">Instant upload</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+          {/* Empty State */}
+          {fileStatuses.length === 0 && (
+            <div className="text-center py-12">
+              <DocumentTextIcon className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                No files uploaded yet
+              </h3>
+              <p className="text-gray-500 mb-6 max-w-sm mx-auto">
+                Upload your documents to analyze them for AI content and get authenticity scores
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </AppLayout>

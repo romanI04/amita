@@ -17,9 +17,9 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient()
     
-    // Verify authentication
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session || session.user.id !== userId) {
+    // Verify authentication using getUser() for security
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user || user.id !== userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -171,9 +171,9 @@ export async function DELETE(request: NextRequest) {
 
     const supabase = await createClient()
     
-    // Verify authentication
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session || session.user.id !== userId) {
+    // Verify authentication using getUser() for security
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user || user.id !== userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

@@ -4,11 +4,24 @@ import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth/context'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useVoiceProfile, useVoiceProfileSelectors } from '@/lib/context/VoiceProfileContext'
-import { useProfileUpdates, useSampleEvents } from '@/lib/events/VoiceProfileEvents'
+import { useProfileUpdates } from '@/lib/events/VoiceProfileEvents'
 import { Button } from '@/components/ui/Button'
-import { PlusIcon, DocumentTextIcon, SparklesIcon } from '@heroicons/react/24/outline'
+import { 
+  SubtleBlocks,
+  ProcessIndicator,
+  LiveMetric,
+  TypingFlow,
+  StatusLine
+} from '@/components/SubtleBlocks'
+import { 
+  ArrowRightIcon,
+  DocumentTextIcon,
+  SparklesIcon,
+  CloudArrowUpIcon
+} from '@heroicons/react/24/outline'
 import AppLayout from '@/components/layout/AppLayout'
 import Link from 'next/link'
+import { motion } from 'framer-motion'
 
 interface RecentAnalysis {
   id: string;
@@ -26,9 +39,12 @@ export default function DashboardPage() {
   const selectors = useVoiceProfileSelectors()
   
   const [showVoiceprintSuccess, setShowVoiceprintSuccess] = useState(false)
-  const [profileUpdateNotification, setProfileUpdateNotification] = useState<string | null>(null)
+  const [currentText, setCurrentText] = useState('')
+  const [isTyping, setIsTyping] = useState(false)
+  const [typingTimer, setTypingTimer] = useState<NodeJS.Timeout | null>(null)
+  const [hoveredCard, setHoveredCard] = useState<string | null>(null)
+  const [processingMetric, setProcessingMetric] = useState<string | null>(null)
   
-  // Get data from shared state
   const recentAnalyses: RecentAnalysis[] = selectors.getRecentSamples().map(sample => ({
     id: sample.id,
     title: sample.title || 'Untitled Analysis',
@@ -37,228 +53,339 @@ export default function DashboardPage() {
     authenticity_score: Number(sample.authenticity_score) || 0
   }))
 
-  // Listen for profile updates to show real-time notifications
   useProfileUpdates((data) => {
     if (data.reason === 'add_sample') {
-      setProfileUpdateNotification(`Profile strengthened (+${data.coverage.wordCount - voiceProfileState.coverage.wordCount} words). Suggestions updated.`)
-      setTimeout(() => setProfileUpdateNotification(null), 5000)
+      setProcessingMetric('voice')
+      setTimeout(() => setProcessingMetric(null), 3000)
     }
   })
 
-  // Listen for sample events to show real-time feedback
-  useSampleEvents((eventType, data) => {
-    if (eventType === 'sample.analyzed') {
-      setProfileUpdateNotification(`Sample analyzed. Integrity: ${Math.round(data.integrity)}, Risk: ${Math.round(data.risk)}%`)
-      setTimeout(() => setProfileUpdateNotification(null), 4000)
-    }
-  })
-
-  // Redirect to onboarding if user hasn't completed it
   useEffect(() => {
-    if (!loading && user && (!profile || !profile.onboarded)) {
-      console.log('User needs onboarding, redirecting...')
-      router.push('/onboarding')
-    }
-  }, [loading, user, profile, router])
-
-  // Check for voiceprint creation success
-  useEffect(() => {
-    if (searchParams.get('voiceprint_created') === 'true') {
+    if (searchParams.get('voiceprint') === 'created') {
       setShowVoiceprintSuccess(true)
-      const timer = setTimeout(() => {
+      setProcessingMetric('voice')
+      setTimeout(() => {
         setShowVoiceprintSuccess(false)
+        setProcessingMetric(null)
       }, 5000)
-      return () => clearTimeout(timer)
     }
   }, [searchParams])
 
-  // Data is now loaded via VoiceProfileProvider - no manual loading needed
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setCurrentText(e.target.value)
+    setIsTyping(true)
+    
+    if (typingTimer) clearTimeout(typingTimer)
+    
+    const timer = setTimeout(() => {
+      setIsTyping(false)
+    }, 500)
+    setTypingTimer(timer)
+  }
 
-  // Show loading while checking onboarding status
-  if (loading || (user && (!profile || !profile.onboarded))) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+      <AppLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <ProcessIndicator isProcessing={true} label="Loading" />
         </div>
-      </div>
+      </AppLayout>
     )
+  }
+
+  if (!user) {
+    router.push('/login')
+    return null
+  }
+
+  const wordCount = currentText.split(/\s+/).filter(w => w).length
+  const charCount = currentText.length
+  const totalAnalyses = voiceProfileState.coverage.sampleCount
+  const avgAuthenticity = recentAnalyses.length > 0
+    ? Math.round(recentAnalyses.reduce((acc, a) => acc + a.authenticity_score, 0) / recentAnalyses.length)
+    : 0
+  const avgAiScore = recentAnalyses.length > 0
+    ? Math.round(recentAnalyses.reduce((acc, a) => acc + a.ai_confidence_score, 0) / recentAnalyses.length)
+    : 0
+
+  const handleAnalyze = () => {
+    if (currentText.trim()) {
+      sessionStorage.setItem('quickAnalysisText', currentText)
+    }
+    router.push('/analyze')
   }
 
   return (
     <AppLayout>
-      <div className="flex-1">
-        {/* Success Banner */}
+      <div className="min-h-screen bg-white">
+        {/* Success Notification - Subtle */}
         {showVoiceprintSuccess && (
-          <div className="bg-primary-50 border-b border-primary-200 px-6 py-4">
-            <div className="flex items-center justify-between">
-              <p className="text-primary-800 font-medium">
-                Your Voice Profile has been created successfully! Your writing analysis is now more personalized.
-              </p>
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="border-b border-gray-100 px-6 py-3"
+          >
+            <div className="max-w-5xl mx-auto flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <SubtleBlocks value={100} max={100} color="green" isActive={true} size="xs" />
+                <p className="text-sm text-gray-700">
+                  Voice profile activated successfully
+                </p>
+              </div>
               <button
                 onClick={() => setShowVoiceprintSuccess(false)}
-                className="text-primary-600 hover:text-primary-800"
+                className="text-gray-400 hover:text-gray-600"
               >
                 ×
               </button>
             </div>
-          </div>
-        )}
-
-        {/* Real-time Profile Update Notification */}
-        {profileUpdateNotification && (
-          <div className="bg-primary-50 border-b border-primary-200 px-6 py-4 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <p className="text-primary-800 font-medium">
-                {profileUpdateNotification}
-              </p>
-              <button
-                onClick={() => setProfileUpdateNotification(null)}
-                className="text-primary-600 hover:text-primary-800"
-              >
-                ×
-              </button>
-            </div>
-          </div>
+          </motion.div>
         )}
 
         {/* Main Content */}
-        <div className="p-8 bg-gray-50 min-h-screen">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, {profile?.full_name?.split(' ')[0] || 'there'}
+        <div className="max-w-5xl mx-auto px-6 py-16">
+          {/* Header - Clean */}
+          <div className="mb-12">
+            <h1 className="text-3xl font-light text-gray-900 mb-2">
+              Welcome back, {profile?.full_name?.split(' ')[0] || 'there'}
             </h1>
-            <p className="text-gray-600 text-lg">
-              Ready to analyze your writing and preserve your authentic voice?
+            <p className="text-gray-500">
+              Analyze and improve your writing with AI detection
             </p>
+            <div className="mt-4">
+              <span className="font-mono text-xs text-gray-300">
+                ••••••••••••••••••••••••••••••••••••••••
+              </span>
+            </div>
           </div>
 
-          {/* Quick Actions */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-            <Link href="/analyze">
-              <div className="bg-white rounded-2xl p-6 hover:shadow-lg transition-all cursor-pointer group border border-transparent hover:border-primary-100">
-                <div className="flex items-center space-x-4">
-                  <div className="p-3 bg-gradient-to-br from-primary-50 to-primary-100 rounded-xl group-hover:from-primary-100 group-hover:to-primary-200 transition-colors">
-                    <DocumentTextIcon className="h-6 w-6 text-primary-600" />
+          {/* Quick Analysis - Refined */}
+          <div className="bg-white border border-gray-200 rounded-xl p-8 mb-8 hover:border-gray-300 transition-all">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-medium text-gray-900 mb-1">Quick Analysis</h2>
+                <p className="text-sm text-gray-500">Start typing to activate metrics</p>
+              </div>
+              <TypingFlow isTyping={isTyping} wordCount={wordCount} />
+            </div>
+
+            <textarea
+              value={currentText}
+              onChange={handleTextChange}
+              placeholder="Start typing or paste your text here..."
+              className="w-full h-32 p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 resize-none transition-all"
+            />
+
+            {/* Subtle Metrics Bar */}
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Characters</span>
+                    <SubtleBlocks 
+                      value={charCount} 
+                      max={500} 
+                      color="green"
+                      isActive={isTyping}
+                      size="xs"
+                    />
+                    <span className={`text-xs font-medium ${charCount >= 50 ? 'text-green-600' : 'text-gray-400'}`}>
+                      {charCount}/50
+                    </span>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Analyze Text</h3>
-                    <p className="text-sm text-gray-500 mt-1">{voiceProfileState.coverage.sampleCount}/25 this month</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Words</span>
+                    <SubtleBlocks 
+                      value={wordCount} 
+                      max={100} 
+                      color="blue"
+                      isActive={isTyping}
+                      size="xs"
+                    />
+                    <span className="text-xs font-medium text-gray-600">{wordCount}</span>
                   </div>
                 </div>
+                
+                <Button
+                  onClick={handleAnalyze}
+                  disabled={charCount < 50}
+                  className="bg-gray-900 hover:bg-black text-white text-sm px-6 py-2 transition-all"
+                >
+                  Analyze
+                  <ArrowRightIcon className="h-4 w-4 ml-2" />
+                </Button>
               </div>
+            </div>
+          </div>
+
+          {/* Stats Row - Subtle with hover activation */}
+          <div className="grid grid-cols-3 gap-6 mb-8">
+            <motion.div 
+              whileHover={{ y: -2 }}
+              onHoverStart={() => setHoveredCard('analyses')}
+              onHoverEnd={() => setHoveredCard(null)}
+              className="bg-white border border-gray-200 rounded-lg p-6 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+            >
+              <LiveMetric 
+                value={Math.min(100, totalAnalyses * 10)} 
+                label="Total Analyses" 
+                suffix={` (${totalAnalyses})`}
+                color="blue"
+                isActive={hoveredCard === 'analyses'}
+              />
+            </motion.div>
+            
+            <motion.div 
+              whileHover={{ y: -2 }}
+              onHoverStart={() => setHoveredCard('authenticity')}
+              onHoverEnd={() => setHoveredCard(null)}
+              className="bg-white border border-gray-200 rounded-lg p-6 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+            >
+              <LiveMetric 
+                value={avgAuthenticity} 
+                label="Avg Authenticity" 
+                suffix="%"
+                color="green"
+                isActive={hoveredCard === 'authenticity'}
+              />
+            </motion.div>
+            
+            <motion.div 
+              whileHover={{ y: -2 }}
+              onHoverStart={() => setHoveredCard('voice')}
+              onHoverEnd={() => setHoveredCard(null)}
+              className="bg-white border border-gray-200 rounded-lg p-6 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+            >
+              <LiveMetric 
+                value={voiceProfileState.status === 'active' ? 100 : voiceProfileState.coverage.sampleCount * 20} 
+                label="Voice Profile" 
+                suffix={voiceProfileState.status === 'active' ? ' Active' : ' Building'}
+                color="violet"
+                isActive={hoveredCard === 'voice' || processingMetric === 'voice'}
+              />
+            </motion.div>
+          </div>
+
+          {/* Action Cards - Clean with subtle hover */}
+          <div className="grid grid-cols-3 gap-6 mb-8">
+            <Link href="/analyze">
+              <motion.div 
+                whileHover={{ y: -2 }}
+                className="group bg-white border border-gray-200 rounded-lg p-6 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+              >
+                <DocumentTextIcon className="h-5 w-5 text-gray-400 mb-3" />
+                <h3 className="font-medium text-gray-900 mb-1">Deep Analysis</h3>
+                <p className="text-sm text-gray-500 mb-3">
+                  Comprehensive AI detection
+                </p>
+                <ProcessIndicator isProcessing={false} />
+              </motion.div>
             </Link>
 
             <Link href="/upload">
-              <div className="bg-white rounded-2xl p-6 hover:shadow-lg transition-all cursor-pointer group border border-transparent hover:border-primary-100">
-                <div className="flex items-center space-x-4">
-                  <div className="p-3 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl group-hover:from-blue-100 group-hover:to-blue-200 transition-colors">
-                    <PlusIcon className="h-6 w-6 text-blue-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Upload Files</h3>
-                    <p className="text-sm text-gray-500 mt-1">TXT, PDF, DOCX files</p>
-                  </div>
-                </div>
-              </div>
+              <motion.div 
+                whileHover={{ y: -2 }}
+                className="group bg-white border border-gray-200 rounded-lg p-6 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+              >
+                <CloudArrowUpIcon className="h-5 w-5 text-gray-400 mb-3" />
+                <h3 className="font-medium text-gray-900 mb-1">Batch Upload</h3>
+                <p className="text-sm text-gray-500 mb-3">
+                  Process multiple documents
+                </p>
+                <ProcessIndicator isProcessing={false} />
+              </motion.div>
             </Link>
 
             <Link href="/profile">
-              <div className="bg-white rounded-2xl p-6 hover:shadow-lg transition-all cursor-pointer group border border-transparent hover:border-primary-100">
-                <div className="flex items-center space-x-4">
-                  <div className="p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl group-hover:from-purple-100 group-hover:to-purple-200 transition-colors">
-                    <SparklesIcon className="h-6 w-6 text-purple-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Voice Profile</h3>
-                    <p className="text-sm text-gray-500 mt-1">View your writing traits</p>
-                  </div>
-                </div>
-              </div>
+              <motion.div 
+                whileHover={{ y: -2 }}
+                className="group bg-white border border-gray-200 rounded-lg p-6 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+              >
+                <SparklesIcon className="h-5 w-5 text-gray-400 mb-3" />
+                <h3 className="font-medium text-gray-900 mb-1">Voice Profile</h3>
+                <p className="text-sm text-gray-500 mb-3">
+                  Train your writing style
+                </p>
+                <ProcessIndicator isProcessing={processingMetric === 'voice'} />
+              </motion.div>
             </Link>
           </div>
 
-          {/* Recent Activity */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
-            <div className="px-6 py-5 border-b border-gray-100">
-              <h2 className="text-xl font-semibold text-gray-900">Recent Activity</h2>
-            </div>
-            
-            {voiceProfileState.isLoading ? (
-              <div className="p-8 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
-                <p className="text-gray-600">Loading your analyses...</p>
+          {/* Recent Activity - Clean list with subtle blocks */}
+          {recentAnalyses.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-medium text-gray-900">Recent Activity</h2>
+                <Link href="/history" className="text-sm text-gray-500 hover:text-gray-700">
+                  View all
+                </Link>
               </div>
-            ) : recentAnalyses.length > 0 ? (
-              <div className="divide-y divide-gray-200">
-                {recentAnalyses.map((analysis) => {
-                  const createdAt = new Date(analysis.created_at)
-                  const timeAgo = getTimeAgo(createdAt)
-                  const aiRisk = analysis.ai_confidence_score || 0
-                  const authenticity = analysis.authenticity_score || 0
-                  
-                  return (
-                    <Link key={analysis.id} href={`/analyze?sample_id=${analysis.id}`}>
-                      <div className="px-6 py-5 hover:bg-gray-50 cursor-pointer transition-colors group">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <h3 className="font-medium text-gray-900 group-hover:text-primary-600 transition-colors">
-                              {analysis.title || 'Untitled Analysis'}
-                            </h3>
-                            <p className="text-sm text-gray-500 mt-1">{timeAgo}</p>
-                          </div>
-                          <div className="flex items-center space-x-4">
-                            <div className="text-right">
-                              <div className="text-sm font-semibold text-gray-900">
-                                {Math.round(authenticity)}% Authentic
-                              </div>
-                              <div className={`text-xs font-medium mt-1 ${
-                                aiRisk < 20 ? 'text-primary-600' : 
-                                aiRisk < 40 ? 'text-yellow-600' : 'text-red-600'
-                              }`}>
-                                {Math.round(aiRisk)}% AI Risk
-                              </div>
+              
+              <div className="space-y-3">
+                {recentAnalyses.slice(0, 3).map((analysis) => (
+                  <Link key={analysis.id} href={`/analyze?sample_id=${analysis.id}`}>
+                    <motion.div 
+                      whileHover={{ x: 2 }}
+                      className="bg-white border border-gray-200 rounded-lg p-4 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-medium text-gray-900 text-sm mb-1">
+                            {analysis.title}
+                          </h3>
+                          <p className="text-xs text-gray-500">
+                            {getTimeAgo(new Date(analysis.created_at))}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-8">
+                          <div className="text-right">
+                            <div className="text-xs text-gray-500 mb-1">Authenticity</div>
+                            <div className="flex items-center gap-2">
+                              <SubtleBlocks 
+                                value={analysis.authenticity_score} 
+                                max={100} 
+                                color="green"
+                                isActive={false}
+                                size="xs"
+                              />
+                              <span className="text-sm font-medium text-gray-700">
+                                {analysis.authenticity_score}%
+                              </span>
                             </div>
-                            <DocumentTextIcon className="h-5 w-5 text-gray-400" />
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-gray-500 mb-1">AI Score</div>
+                            <div className="flex items-center gap-2">
+                              <SubtleBlocks 
+                                value={analysis.ai_confidence_score} 
+                                max={100} 
+                                color="red"
+                                isActive={false}
+                                size="xs"
+                              />
+                              <span className="text-sm font-medium text-gray-700">
+                                {analysis.ai_confidence_score}%
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </Link>
-                  )
-                })}
-                
-                {recentAnalyses.length >= 5 && (
-                  <div className="px-6 py-4 text-center border-t border-gray-100">
-                    <Link href="/analyze" className="text-primary-600 hover:text-primary-700 font-medium inline-flex items-center">
-                      View all analyses
-                      <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </Link>
-                  </div>
-                )}
+                    </motion.div>
+                  </Link>
+                ))}
               </div>
-            ) : (
-              <div className="p-12 text-center">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <DocumentTextIcon className="h-8 w-8 text-gray-400" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  No analyses yet
-                </h3>
-                <p className="text-gray-500 mb-6 max-w-sm mx-auto">
-                  Start by analyzing your first piece of writing to build your voice profile and get insights.
-                </p>
-                <Link href="/analyze">
-                  <Button className="bg-primary-500 text-white hover:bg-primary-600 flex items-center space-x-2">
-                    <SparklesIcon className="w-4 h-4" />
-                    <span>Analyze Your First Text</span>
-                  </Button>
-                </Link>
-              </div>
-            )}
+            </div>
+          )}
+
+          {/* Footer Status Bar - Subtle dots */}
+          <div className="mt-12 pt-8 border-t border-gray-100">
+            <StatusLine 
+              items={[
+                { label: 'System', active: true, color: 'green' },
+                { label: 'API', active: true, color: 'blue' },
+                { label: 'Voice', active: voiceProfileState.status === 'active', color: 'violet' }
+              ]}
+            />
           </div>
         </div>
       </div>

@@ -54,6 +54,7 @@ export interface VoiceProfileState {
   voiceDrift: 'stable' | 'slight' | 'major'
   
   // System state
+  status?: 'computing' | 'active' | 'failed' | null
   version: number
   isLoading: boolean
   error: string | null
@@ -108,6 +109,7 @@ const initialState: VoiceProfileState = {
   averageIntegrity: 0,
   averageRisk: 0,
   voiceDrift: 'stable',
+  status: null,
   version: 1,
   isLoading: true,
   error: null,

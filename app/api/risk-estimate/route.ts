@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
             content: estimationPrompt
           }
         ],
-        model: 'grok-4',
+        model: 'grok-4-latest',
         temperature: 0.1,
         max_tokens: 200
       })
@@ -76,9 +76,11 @@ export async function POST(request: NextRequest) {
       // Parse the JSON response
       let estimation
       try {
-        estimation = JSON.parse(response.content.trim())
+        const { jsonrepair } = await import('jsonrepair')
+        const repairedContent = jsonrepair(response.content.trim())
+        estimation = JSON.parse(repairedContent)
       } catch (parseError) {
-        console.error('Failed to parse estimation response:', response.content)
+        console.error('Failed to parse estimation response:', response.content?.substring(0, 500))
         throw new Error('Invalid response format from estimation service')
       }
       

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/lib/auth/context'
+import { VoiceProfileProvider } from '@/lib/context/VoiceProfileContext'
 
 export default function DashboardLayout({
   children,
@@ -64,8 +65,10 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50">
-      {children}
-    </div>
+    <VoiceProfileProvider>
+      <div className="min-h-screen bg-neutral-50">
+        {children}
+      </div>
+    </VoiceProfileProvider>
   )
 }

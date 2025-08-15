@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { SkeletonLoader } from '@/components/ui/SkeletonLoader'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
+import { useToast } from '@/components/ui/Toast'
+import { useDebounce } from '@/lib/hooks/useDebounce'
 import { 
   UserCircleIcon,
   BellIcon,
@@ -82,6 +84,7 @@ const DATA_RETENTION_OPTIONS = [
 export default function SettingsPage() {
   const { user, profile, updateProfile, signOut } = useAuth()
   const { state: voiceProfileState } = useVoiceProfile()
+  const { showToast } = useToast()
   
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -92,6 +95,9 @@ export default function SettingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showDataExport, setShowDataExport] = useState(false)
   const [exportProgress, setExportProgress] = useState<number | null>(null)
+  const [fieldSaving, setFieldSaving] = useState<{ [key: string]: boolean }>({})
+  const [validationErrors, setValidationErrors] = useState<{ [key: string]: string }>({})
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
   // Load user settings
   useEffect(() => {
@@ -141,14 +147,59 @@ export default function SettingsPage() {
     loadSettings()
   }, [user, profile])
 
-  const handleSettingChange = (key: keyof UserSettings, value: any) => {
+  const handleSettingChange = async (key: keyof UserSettings, value: any, autoSave: boolean = false) => {
     if (!settings) return
     
+    // Validation
+    const errors = { ...validationErrors }
+    
+    if (key === 'full_name' && value) {
+      if (value.length < 2) {
+        errors.full_name = 'Name must be at least 2 characters'
+      } else if (value.length > 100) {
+        errors.full_name = 'Name must be less than 100 characters'
+      } else {
+        delete errors.full_name
+      }
+    }
+    
+    setValidationErrors(errors)
     setSettings(prev => prev ? { ...prev, [key]: value } : null)
+    setHasUnsavedChanges(true)
+    
+    // Auto-save for toggle switches
+    if (autoSave && !errors[key]) {
+      setFieldSaving(prev => ({ ...prev, [key]: true }))
+      
+      try {
+        await new Promise(resolve => setTimeout(resolve, 500)) // Simulate API call
+        
+        const response = await fetch('/api/user/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [key]: value })
+        })
+        
+        if (response.ok) {
+          showToast(`${key.replace(/_/g, ' ')} updated`, 'success')
+          setHasUnsavedChanges(false)
+        }
+      } catch (err) {
+        showToast('Failed to save setting', 'error')
+      } finally {
+        setFieldSaving(prev => ({ ...prev, [key]: false }))
+      }
+    }
   }
 
   const handleSaveSettings = async () => {
     if (!settings || !user) return
+    
+    // Check for validation errors
+    if (Object.keys(validationErrors).length > 0) {
+      showToast('Please fix validation errors before saving', 'error')
+      return
+    }
 
     setIsSaving(true)
     setError(null)
@@ -176,12 +227,16 @@ export default function SettingsPage() {
         })
       }
 
+      showToast('Settings saved successfully!', 'success')
+      setHasUnsavedChanges(false)
       setSuccessMessage('Settings saved successfully!')
       setTimeout(() => setSuccessMessage(null), 3000)
 
     } catch (err) {
       console.error('Settings save error:', err)
-      setError(err instanceof Error ? err.message : 'Failed to save settings')
+      const errorMsg = err instanceof Error ? err.message : 'Failed to save settings'
+      setError(errorMsg)
+      showToast(errorMsg, 'error')
     } finally {
       setIsSaving(false)
     }
@@ -378,7 +433,11 @@ export default function SettingsPage() {
                             value={settings.full_name}
                             onChange={(e) => handleSettingChange('full_name', e.target.value)}
                             placeholder="Enter your full name"
+                            error={validationErrors.full_name}
                           />
+                          {fieldSaving.full_name && (
+                            <p className="text-xs text-blue-600 mt-1">Saving...</p>
+                          )}
                         </div>
                         
                         <div>
@@ -468,14 +527,19 @@ export default function SettingsPage() {
                             <p className="text-sm text-gray-600">Automatically save your analyses as you work</p>
                           </div>
                           <button
-                            onClick={() => handleSettingChange('auto_save_analyses', !settings.auto_save_analyses)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                            onClick={() => handleSettingChange('auto_save_analyses', !settings.auto_save_analyses, true)}
+                            disabled={fieldSaving.auto_save_analyses}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                               settings.auto_save_analyses ? 'bg-blue-600' : 'bg-gray-200'
+                            } ${
+                              fieldSaving.auto_save_analyses ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                           >
                             <span
                               className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                                 settings.auto_save_analyses ? 'translate-x-6' : 'translate-x-1'
+                              } ${
+                                fieldSaving.auto_save_analyses ? 'animate-pulse' : ''
                               }`}
                             />
                           </button>
@@ -487,14 +551,19 @@ export default function SettingsPage() {
                             <p className="text-sm text-gray-600">Display helpful tips during analysis</p>
                           </div>
                           <button
-                            onClick={() => handleSettingChange('show_improvement_tips', !settings.show_improvement_tips)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                            onClick={() => handleSettingChange('show_improvement_tips', !settings.show_improvement_tips, true)}
+                            disabled={fieldSaving.show_improvement_tips}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                               settings.show_improvement_tips ? 'bg-blue-600' : 'bg-gray-200'
+                            } ${
+                              fieldSaving.show_improvement_tips ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                           >
                             <span
                               className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                                 settings.show_improvement_tips ? 'translate-x-6' : 'translate-x-1'
+                              } ${
+                                fieldSaving.show_improvement_tips ? 'animate-pulse' : ''
                               }`}
                             />
                           </button>
@@ -816,11 +885,17 @@ export default function SettingsPage() {
 
               {/* Save Button */}
               <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 rounded-b-lg">
-                <div className="flex justify-end">
+                <div className="flex items-center justify-between">
+                  {hasUnsavedChanges && (
+                    <p className="text-sm text-amber-600 flex items-center">
+                      <ExclamationTriangleIcon className="h-4 w-4 mr-1" />
+                      You have unsaved changes
+                    </p>
+                  )}
                   <Button
                     onClick={handleSaveSettings}
-                    disabled={isSaving}
-                    className="flex items-center space-x-2"
+                    disabled={isSaving || Object.keys(validationErrors).length > 0}
+                    className="flex items-center space-x-2 ml-auto"
                   >
                     {isSaving ? (
                       <>

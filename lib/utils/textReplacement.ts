@@ -106,15 +106,15 @@ export function findSectionPositions(
  * @returns Estimated risk reduction percentage
  */
 export function calculateRiskReduction(segments: TextSegment[]): number {
-  // Simple heuristic: each replacement reduces risk by 3-8%
-  // More sophisticated calculation would analyze the actual changes
+  // Calculate risk reduction based on actual changes
+  // Use conservative estimates without random values
   const baseReduction = 3
-  const variableReduction = 5
   
   return segments.reduce((total, segment) => {
     const lengthRatio = segment.replacement.length / segment.original.length
     const adjustment = lengthRatio > 0.8 && lengthRatio < 1.2 ? 1 : 0.5
-    return total + (baseReduction + Math.random() * variableReduction) * adjustment
+    // Use fixed base reduction, actual values should come from xAI analysis
+    return total + baseReduction * adjustment
   }, 0)
 }
 

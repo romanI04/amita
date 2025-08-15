@@ -2,6 +2,7 @@ import React from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import DemoMode from '@/components/DemoMode'
 import { 
   ArrowRightIcon,
   SparklesIcon,
@@ -88,6 +89,13 @@ export default function HomePage() {
               </Button>
             </Link>
           </div>
+        </div>
+      </section>
+
+      {/* Demo Section - THE MOST IMPORTANT SECTION */}
+      <section className="relative z-10 py-16 bg-gradient-to-b from-white to-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <DemoMode />
         </div>
       </section>
 

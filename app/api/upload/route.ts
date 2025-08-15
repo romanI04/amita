@@ -13,6 +13,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB in bytes
 interface UploadResult {
   id: string
   wordCount: number
+  extractedText: string
   analysis?: any // Optional analysis result
 }
 
@@ -130,8 +131,13 @@ export async function POST(request: NextRequest) {
             const pdfParse = require('pdf-parse')
             console.log('pdf-parse loaded successfully, parsing buffer of size:', fileBuffer.length)
             
-            // Extract text from PDF
-            const pdfData = await pdfParse(fileBuffer)
+            // Extract text from PDF with proper options
+            const pdfData = await pdfParse(fileBuffer, {
+              // Disable debug mode to avoid test file references
+              version: 'v2.0.0',
+              // Don't try to load test data
+              max: 0
+            })
             extractedText = pdfData.text.trim()
             console.log('Text extracted from PDF, length:', extractedText.length)
             console.log('PDF pages processed:', pdfData.numpages)
@@ -140,15 +146,31 @@ export async function POST(request: NextRequest) {
             const error = pdfError as Error & { code?: string }
             console.error('PDF parsing error details:', {
               message: error.message,
-              stack: error.stack,
-              name: error.name,
-              code: error.code
+              name: error.name
             })
             
-            // Return a user-friendly error
-            return NextResponse.json({
-              error: `PDF processing failed: ${error.message}. Please try converting to TXT format or ensure the PDF is not password-protected.`
-            }, { status: 400 })
+            // Handle specific PDF errors
+            if (error.message.includes('ENOENT') && error.message.includes('test/data')) {
+              // This is the test file reference error - try alternative approach
+              console.log('Attempting alternative PDF parsing...')
+              try {
+                // Try parsing without any options
+                const pdfParse = require('pdf-parse')
+                const pdfData = await pdfParse(fileBuffer, {})
+                extractedText = pdfData.text.trim()
+                console.log('Alternative PDF extraction successful, length:', extractedText.length)
+              } catch (altError) {
+                console.error('Alternative PDF parsing also failed:', altError)
+                return NextResponse.json({
+                  error: 'PDF processing failed. Please try converting to TXT format or ensure the PDF is not corrupted.'
+                }, { status: 400 })
+              }
+            } else {
+              // Return a user-friendly error for other cases
+              return NextResponse.json({
+                error: `PDF processing failed: ${error.message}. Please try converting to TXT format or ensure the PDF is not password-protected.`
+              }, { status: 400 })
+            }
           }
           break
           
@@ -343,6 +365,7 @@ export async function POST(request: NextRequest) {
       const result: UploadResult = {
         id: sampleId,
         wordCount,
+        extractedText: extractedText.trim(),
         analysis: analysisResult
       }
 
@@ -354,7 +377,8 @@ export async function POST(request: NextRequest) {
       // Still return success for upload even if analysis fails
       const result: UploadResult = {
         id: sampleId,
-        wordCount
+        wordCount,
+        extractedText: extractedText.trim()
       }
       console.log('Upload successful but analysis failed')
       return NextResponse.json(result)

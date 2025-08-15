@@ -85,6 +85,10 @@ export interface AIDetectedSection {
   confidence: number;
   reason: string;
   suggested_revision?: string;
+  voice_trait_preserved?: string;
+  voice_trait_enhanced?: string;
+  risk_delta?: number;
+  authenticity_delta?: number;
 }
 
 export interface AnalysisScore {
@@ -150,6 +154,7 @@ export interface AnalysisRequest {
 
 export interface AnalysisResponse {
   id?: string;
+  content?: string; // Original text that was analyzed
   ai_confidence_score: number;
   authenticity_score: number;
   voice_fingerprint: VoiceFingerprint;
