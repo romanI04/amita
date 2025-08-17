@@ -21,12 +21,17 @@ export function TrendsChart({
   showStreaks = true 
 }: TrendsChartProps) {
   
-  // Calculate trends
+  // Calculate trends with divide-by-zero protection
   const trends = useMemo(() => {
-    if (data.length < 2) return { ai: 'stable', authenticity: 'stable' }
+    if (data.length < 2) return { ai: 'stable', authenticity: 'stable', percentChange: { ai: 0, auth: 0 } }
     
     const recent = data.slice(-7)
     const older = data.slice(-14, -7)
+    
+    // Handle empty arrays
+    if (recent.length === 0 || older.length === 0) {
+      return { ai: 'stable', authenticity: 'stable', percentChange: { ai: 0, auth: 0 } }
+    }
     
     const recentAiAvg = recent.reduce((acc, d) => acc + d.aiScore, 0) / recent.length
     const olderAiAvg = older.reduce((acc, d) => acc + d.aiScore, 0) / older.length
@@ -34,9 +39,17 @@ export function TrendsChart({
     const recentAuthAvg = recent.reduce((acc, d) => acc + d.authenticityScore, 0) / recent.length
     const olderAuthAvg = older.reduce((acc, d) => acc + d.authenticityScore, 0) / older.length
     
+    // Calculate percentage change safely
+    const aiPercentChange = olderAiAvg > 0 ? ((recentAiAvg - olderAiAvg) / olderAiAvg) * 100 : 0
+    const authPercentChange = olderAuthAvg > 0 ? ((recentAuthAvg - olderAuthAvg) / olderAuthAvg) * 100 : 0
+    
     return {
       ai: recentAiAvg < olderAiAvg ? 'improving' : recentAiAvg > olderAiAvg ? 'declining' : 'stable',
-      authenticity: recentAuthAvg > olderAuthAvg ? 'improving' : recentAuthAvg < olderAuthAvg ? 'declining' : 'stable'
+      authenticity: recentAuthAvg > olderAuthAvg ? 'improving' : recentAuthAvg < olderAuthAvg ? 'declining' : 'stable',
+      percentChange: {
+        ai: Math.round(aiPercentChange),
+        auth: Math.round(authPercentChange)
+      }
     }
   }, [data])
   
@@ -91,10 +104,26 @@ export function TrendsChart({
         <div className="flex items-center gap-6 text-xs text-gray-500">
           <span>Period: {period}</span>
           <span className="flex items-center gap-2">
-            <span>AI Detection Trend:</span>
+            <span>AI Detection:</span>
             <span style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>
-              {trends.ai === 'improving' ? '↓••' : trends.ai === 'declining' ? '↑○○' : '→••'}
+              {trends.ai === 'improving' ? '↓' : trends.ai === 'declining' ? '↑' : '→'}
             </span>
+            {trends.percentChange.ai !== 0 && (
+              <span className={trends.ai === 'improving' ? 'text-green-600' : 'text-red-600'}>
+                {Math.abs(trends.percentChange.ai)}%
+              </span>
+            )}
+          </span>
+          <span className="flex items-center gap-2">
+            <span>Authenticity:</span>
+            <span style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>
+              {trends.authenticity === 'improving' ? '↑' : trends.authenticity === 'declining' ? '↓' : '→'}
+            </span>
+            {trends.percentChange.auth !== 0 && (
+              <span className={trends.authenticity === 'improving' ? 'text-green-600' : 'text-red-600'}>
+                {Math.abs(trends.percentChange.auth)}%
+              </span>
+            )}
           </span>
         </div>
       </div>
@@ -121,13 +150,20 @@ export function TrendsChart({
       {/* Chart */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
         <div className="relative">
-          {/* Y-axis */}
-          <div className="absolute -left-4 top-0 h-full flex flex-col justify-between text-xs text-gray-400">
-            {yLabels.map(label => (
-              <span key={label} style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>
-                {label}
-              </span>
-            ))}
+          {/* Y-axis with label */}
+          <div className="absolute -left-12 top-0 h-full">
+            {/* Y-axis label */}
+            <div className="absolute -left-4 top-1/2 -translate-y-1/2 -rotate-90 origin-center">
+              <span className="text-xs text-gray-500 whitespace-nowrap">Score (%)</span>
+            </div>
+            {/* Y-axis values */}
+            <div className="absolute left-4 top-0 h-full flex flex-col justify-between text-xs text-gray-400">
+              {yLabels.map(label => (
+                <span key={label} style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>
+                  {label}
+                </span>
+              ))}
+            </div>
           </div>
           
           {/* Chart Area */}
@@ -191,12 +227,18 @@ export function TrendsChart({
           </svg>
           
           {/* X-axis labels */}
-          <div className="flex justify-between mt-2 text-xs text-gray-400">
-            {data.slice(0, 5).map((point, idx) => (
-              <span key={idx} style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>
-                {new Date(point.date).getDate()}
-              </span>
-            ))}
+          <div className="ml-8">
+            <div className="flex justify-between mt-2 text-xs text-gray-400">
+              {data.slice(0, 5).map((point, idx) => (
+                <span key={idx} style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>
+                  {new Date(point.date).getDate()}
+                </span>
+              ))}
+            </div>
+            {/* X-axis label */}
+            <div className="text-center mt-2">
+              <span className="text-xs text-gray-500">Day of Month</span>
+            </div>
           </div>
         </div>
         

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const ALLOWED_FILE_TYPES = ['.txt', '.pdf', '.docx']
-const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: 'File size exceeds 5MB limit' },
+        { error: 'File size exceeds 10MB limit' },
         { status: 400 }
       )
     }
@@ -44,11 +44,12 @@ export async function POST(request: NextRequest) {
           
         case '.pdf':
           try {
-            const pdfParse = require('pdf-parse')
+            const pdfParse = (await import('pdf-parse')).default
             const pdfData = await pdfParse(fileBuffer)
             extractedText = pdfData.text.trim()
           } catch (pdfError) {
             const error = pdfError as Error
+            console.error('PDF parsing error:', error)
             return NextResponse.json({
               error: `PDF processing failed: ${error.message}. Please try converting to TXT format or ensure the PDF is not password-protected.`
             }, { status: 400 })
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
           
         case '.docx':
           try {
-            const mammoth = require('mammoth')
+            const mammoth = (await import('mammoth')).default || await import('mammoth')
             const docxResult = await mammoth.extractRawText({ buffer: fileBuffer })
             extractedText = docxResult.value
           } catch (docxError) {
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest) {
     const wordCount = extractedText.trim().split(/\s+/).length
 
     return NextResponse.json({
+      text: extractedText,
       content: extractedText,
       wordCount,
       fileName: file.name

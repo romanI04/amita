@@ -11,14 +11,12 @@ import {
   UserCircleIcon,
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
-  CloudArrowUpIcon,
   CreditCardIcon
 } from '@heroicons/react/24/outline'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
   { name: 'Analyze', href: '/analyze', icon: DocumentTextIcon },
-  { name: 'Upload', href: '/upload', icon: CloudArrowUpIcon },
   { name: 'History', href: '/history', icon: ChartBarIcon },
   { name: 'Profile', href: '/profile', icon: UserCircleIcon },
   { name: 'Pricing', href: '/pricing', icon: CreditCardIcon },
@@ -28,15 +26,29 @@ const bottomNavigation = [
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
 ]
 
-export default function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void
+}
+
+export default function Sidebar({ onClose }: SidebarProps) {
   const pathname = usePathname()
   const { user, profile, signOut } = useAuth()
 
   return (
     <div className="flex h-full w-64 flex-col bg-white border-r border-gray-200">
       {/* Header */}
-      <div className="flex h-16 shrink-0 items-center px-6 border-b border-gray-200">
+      <div className="flex h-16 shrink-0 items-center justify-between px-6 border-b border-gray-200">
         <h1 className="text-xl font-semibold text-gray-900">amita.ai</h1>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* User info */}
@@ -64,6 +76,7 @@ export default function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
+              onClick={onClose}
               className={`
                 group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors
                 ${isActive 
@@ -96,7 +109,7 @@ export default function Sidebar() {
             </div>
           </div>
           
-          <Link href="/pricing">
+          <Link href="/pricing" onClick={onClose}>
             <button className="w-full bg-primary-600 text-white text-sm font-medium py-2 px-3 rounded-lg hover:bg-primary-700 transition-colors">
               Upgrade plan
             </button>
@@ -112,6 +125,7 @@ export default function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
+              onClick={onClose}
               className={`
                 group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors
                 ${isActive 
@@ -131,7 +145,10 @@ export default function Sidebar() {
         })}
         
         <button
-          onClick={signOut}
+          onClick={() => {
+            signOut()
+            onClose?.()
+          }}
           className="group flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-lg transition-colors w-full text-left mt-1"
         >
           <ArrowRightOnRectangleIcon className="mr-3 h-5 w-5 flex-shrink-0 text-gray-400 group-hover:text-gray-600" />

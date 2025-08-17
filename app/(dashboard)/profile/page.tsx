@@ -61,7 +61,7 @@ export default function ProfilePage() {
       ? samples.reduce((sum, s) => sum + (s.authenticity_score || 0), 0) / samples.length 
       : 0
     const avgAIRisk = samples.length > 0
-      ? samples.reduce((sum, s) => sum + (s.ai_risk_score || 0), 0) / samples.length
+      ? samples.reduce((sum, s) => sum + (s.ai_confidence_score || 0), 0) / samples.length
       : 0
     
     return {
@@ -240,13 +240,35 @@ export default function ProfilePage() {
                   <p className="text-xs text-gray-500 mb-1">Words Analyzed</p>
                   <p className="text-2xl font-light text-gray-900">{profileMetrics.totalWords.toLocaleString()}</p>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Authenticity</p>
+                <div className="group relative">
+                  <div className="flex items-center gap-1">
+                    <p className="text-xs text-gray-500 mb-1">Authenticity</p>
+                    <button className="text-gray-400 hover:text-gray-600">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </button>
+                  </div>
                   <p className="text-2xl font-light text-gray-900">{Math.round(profileMetrics.avgAuthenticity)}%</p>
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-gray-900 text-white text-xs rounded opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-10">
+                    How human and original your writing appears, based on vocabulary, flow, and style patterns
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">AI Risk</p>
+                <div className="group relative">
+                  <div className="flex items-center gap-1">
+                    <p className="text-xs text-gray-500 mb-1">AI Risk</p>
+                    <button className="text-gray-400 hover:text-gray-600">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </button>
+                  </div>
                   <p className="text-2xl font-light text-orange-600">{Math.round(profileMetrics.avgAIRisk)}%</p>
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-gray-900 text-white text-xs rounded opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-10">
+                    Likelihood that AI detection tools will flag your content as AI-generated
+                  </div>
                 </div>
               </div>
               
@@ -263,14 +285,21 @@ export default function ProfilePage() {
                     </button>
                   </Link>
                 </div>
-                {!isPremium && (
-                  <button 
-                    onClick={() => showToast('Premium features coming soon!', 'info')}
-                    className="px-4 py-2 bg-gray-900 text-white text-xs rounded hover:bg-black transition-colors"
-                  >
-                    Upgrade to Premium
-                  </button>
-                )}
+                <div className="flex items-center gap-3">
+                  <Link href="/analyze">
+                    <button className="px-6 py-2 bg-gray-900 text-white text-sm rounded hover:bg-black transition-colors">
+                      Train Voice (Add Samples)
+                    </button>
+                  </Link>
+                  {!isPremium && (
+                    <button 
+                      onClick={() => showToast('Premium features coming soon!', 'info')}
+                      className="px-4 py-2 border border-gray-900 text-gray-900 text-xs rounded hover:bg-gray-50 transition-colors"
+                    >
+                      Upgrade to Premium
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
             
@@ -308,15 +337,16 @@ export default function ProfilePage() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div>
                     <TrendsChart 
-                      data={analyses.map((a, i) => ({
-                        date: new Date(a.created_at || ''),
-                        aiScore: Number(a.ai_risk_score) || 0,
+                      data={analyses.map((a) => ({
+                        date: a.created_at || new Date().toISOString(),
+                        aiScore: Number(a.ai_confidence_score) || 0,
                         authenticityScore: Number(a.authenticity_score) || 0
                       }))}
+                      period="week"
                     />
                   </div>
                   <div>
-                    <PatternInsights isPremium={isPremium} />
+                    <PatternInsights patterns={[]} isPremium={isPremium} />
                   </div>
                 </div>
               )}
@@ -373,12 +403,14 @@ export default function ProfilePage() {
                   {analyses.slice(0, 3).map((analysis) => (
                     <BeforeAfterCard
                       key={analysis.id}
+                      id={analysis.id}
                       title={analysis.title || 'Untitled'}
-                      date={new Date(analysis.created_at || '')}
-                      originalScore={100}
-                      improvedScore={100 - (analysis.ai_risk_score || 0)}
+                      date={analysis.created_at || new Date().toISOString()}
                       originalText={analysis.content?.substring(0, 100) + '...' || ''}
-                      improvedText={analysis.improved_content?.substring(0, 100) + '...' || analysis.content?.substring(0, 100) + '...' || ''}
+                      improvedText={analysis.content?.substring(0, 100) + '...' || ''}
+                      aiReduction={Number(analysis.ai_confidence_score) || 0}
+                      authenticityIncrease={Number(analysis.authenticity_score) || 0}
+                      changesApplied={0}
                     />
                   ))}
                 </div>

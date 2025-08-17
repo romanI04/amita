@@ -14,7 +14,7 @@ import {
   LiveMetric
 } from '@/components/SubtleBlocks'
 import AppLayout from '@/components/layout/AppLayout'
-import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline'
+import { ArrowRightIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
 
 interface AnalysisResult {
@@ -49,8 +49,12 @@ export default function AnalyzePage() {
   const [highlightedSections, setHighlightedSections] = useState<Array<{start: number, end: number, reason: string, confidence: number, suggestion?: string, originalText?: string, replacementText?: string}>>([])
   const [isSaved, setIsSaved] = useState(false)
   const [selectedSection, setSelectedSection] = useState<{section: any, x: number, y: number, useFixed?: boolean} | null>(null)
+  const [inputMode, setInputMode] = useState<'text' | 'file'>('text')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   const textAreaRef = useRef<HTMLTextAreaElement>(null)
   const textContainerRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0
   const charCount = text.length
@@ -170,7 +174,54 @@ export default function AnalyzePage() {
     setHighlightedSections([])
     setIsSaved(false)
     setSelectedSection(null)
+    setSelectedFile(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
     textAreaRef.current?.focus()
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const validTypes = ['text/plain', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+    if (!validTypes.includes(file.type)) {
+      showToast('Please upload a TXT, PDF, or DOCX file', 'error')
+      return
+    }
+
+    if (file.size > 10 * 1024 * 1024) { // 10MB limit
+      showToast('File size must be less than 10MB', 'error')
+      return
+    }
+
+    setSelectedFile(file)
+    setIsUploading(true)
+    
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/extract-text', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to extract text')
+      }
+
+      const { text: extractedText } = await response.json()
+      setText(extractedText)
+      showToast('File processed successfully', 'success')
+    } catch (error) {
+      console.error('File processing error:', error)
+      showToast('Failed to process file', 'error')
+      setSelectedFile(null)
+    } finally {
+      setIsUploading(false)
+    }
   }
   
   // Close popup when clicking outside
@@ -329,13 +380,19 @@ export default function AnalyzePage() {
         <div className="max-w-6xl mx-auto px-6 py-16">
           {/* Header */}
           <div className="mb-8">
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="flex items-center gap-2 text-gray-500 hover:text-gray-700 mb-6 text-sm"
-            >
-              <ArrowLeftIcon className="h-4 w-4" />
-              Back to Dashboard
-            </button>
+            {/* Improved Breadcrumb Navigation */}
+            <nav className="flex items-center gap-2 mb-6" aria-label="Breadcrumb">
+              <button
+                onClick={() => router.push('/dashboard')}
+                className="flex items-center gap-1 text-base text-gray-600 hover:text-gray-900 py-2 pr-2 -ml-2 pl-2 rounded-lg hover:bg-gray-50 transition-all min-h-[44px]"
+              >
+                Dashboard
+              </button>
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+              </svg>
+              <span className="text-base text-gray-900 py-2">Analyze</span>
+            </nav>
             
             <h1 className="text-3xl font-light text-gray-900 mb-2">
               Writing Analysis
@@ -354,12 +411,33 @@ export default function AnalyzePage() {
             {/* Main Analysis Box - Redesigned */}
             <div className="lg:col-span-2">
               <div className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-gray-300 transition-all">
-                {/* Header Bar */}
+                {/* Header Bar with Tabs */}
                 <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-sm font-medium text-gray-700">Text Input</h2>
-                      <TypingFlow isTyping={isTyping} wordCount={wordCount} />
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1 bg-white rounded-lg p-1 border border-gray-200">
+                        <button
+                          onClick={() => setInputMode('text')}
+                          className={`px-3 py-1.5 text-xs rounded transition-all ${
+                            inputMode === 'text' 
+                              ? 'bg-gray-900 text-white' 
+                              : 'text-gray-600 hover:text-gray-900'
+                          }`}
+                        >
+                          Text Input
+                        </button>
+                        <button
+                          onClick={() => setInputMode('file')}
+                          className={`px-3 py-1.5 text-xs rounded transition-all ${
+                            inputMode === 'file' 
+                              ? 'bg-gray-900 text-white' 
+                              : 'text-gray-600 hover:text-gray-900'
+                          }`}
+                        >
+                          File Upload
+                        </button>
+                      </div>
+                      {inputMode === 'text' && <TypingFlow isTyping={isTyping} wordCount={wordCount} />}
                     </div>
                     {text && (
                       <button
@@ -372,10 +450,12 @@ export default function AnalyzePage() {
                   </div>
                 </div>
 
-                {/* Text Area with Highlights Overlay */}
+                {/* Content Area */}
                 <div className="p-6">
-                  <div className="relative" ref={textContainerRef} style={{ isolation: 'isolate' }}>
-                    <textarea
+                  {inputMode === 'text' ? (
+                    /* Text Input Mode */
+                    <div className="relative" ref={textContainerRef} style={{ isolation: 'isolate' }}>
+                      <textarea
                       ref={textAreaRef}
                       value={text}
                       onChange={handleTextChange}
@@ -386,6 +466,17 @@ export default function AnalyzePage() {
                         color: highlightedSections.length > 0 ? 'transparent' : undefined 
                       }}
                     />
+                    
+                    {/* Privacy Reassurance */}
+                    <div className="mt-2 flex items-center justify-between">
+                      <p className="text-xs text-gray-500">
+                        We never store your text.{' '}
+                        <a href="/privacy" className="text-gray-700 hover:text-gray-900 underline">
+                          Learn more
+                        </a>
+                      </p>
+                    </div>
+                    
                     {/* Overlay for highlighted text */}
                     {highlightedSections.length > 0 && (
                       <div 
@@ -403,9 +494,68 @@ export default function AnalyzePage() {
                         </div>
                       </div>
                     )}
-                  </div>
+                    </div>
+                  ) : (
+                    /* File Upload Mode */
+                    <div className="space-y-4">
+                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".txt,.pdf,.docx"
+                          onChange={handleFileSelect}
+                          className="hidden"
+                          id="file-upload"
+                        />
+                        <label
+                          htmlFor="file-upload"
+                          className="cursor-pointer"
+                        >
+                          {isUploading ? (
+                            <div className="space-y-2">
+                              <ProcessIndicator isProcessing={true} />
+                              <p className="text-sm text-gray-600">Processing file...</p>
+                            </div>
+                          ) : selectedFile ? (
+                            <div className="space-y-2">
+                              <svg className="w-12 h-12 text-green-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <p className="text-sm font-medium text-gray-900">{selectedFile.name}</p>
+                              <p className="text-xs text-gray-500">Click to change file</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <svg className="w-12 h-12 text-gray-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                              </svg>
+                              <p className="text-sm font-medium text-gray-900">Upload a document</p>
+                              <p className="text-xs text-gray-500">TXT, PDF, or DOCX (max 10MB)</p>
+                            </div>
+                          )}
+                        </label>
+                      </div>
+                      
+                      {text && (
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <p className="text-xs text-gray-600 mb-2">Extracted text preview:</p>
+                          <p className="text-sm text-gray-900 line-clamp-3">{text}</p>
+                        </div>
+                      )}
+                      
+                      {/* Privacy Reassurance */}
+                      <p className="text-xs text-gray-500 text-center">
+                        Files are processed locally and never stored.{' '}
+                        <a href="/privacy" className="text-gray-700 hover:text-gray-900 underline">
+                          Learn more
+                        </a>
+                      </p>
+                    </div>
+                  )}
+                </div>
 
-                  {/* Live Metrics Bar */}
+                {/* Live Metrics Bar - shown in text mode only */}
+                {inputMode === 'text' && (
                   <div className="mt-4 grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-gray-500">Characters</span>
@@ -443,9 +593,11 @@ export default function AnalyzePage() {
                       <span className="text-xs font-medium text-gray-600">{sentenceCount}</span>
                     </div>
                   </div>
+                )}
 
-                  {/* Action Button */}
-                  <div className="mt-6 flex justify-end">
+                {/* Action Button */}
+                <div className="px-6 pb-6">
+                  <div className="flex justify-end">
                     <Button
                       onClick={handleAnalyze}
                       disabled={!canAnalyze || isAnalyzing}

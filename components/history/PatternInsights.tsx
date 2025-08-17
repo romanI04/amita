@@ -135,9 +135,10 @@ export function PatternInsights({
         ))}
       </div>
       
-      {/* Patterns List */}
-      <div className={`space-y-3 ${!isPremium ? 'filter blur-sm pointer-events-none' : ''}`}>
-        {sortedPatterns.map((pattern, idx) => (
+      {/* Patterns List with inline blur for non-premium */}
+      <div className="relative">
+        <div className={`space-y-3 ${!isPremium ? 'filter blur-sm pointer-events-none select-none' : ''}`}>
+          {sortedPatterns.map((pattern, idx) => (
           <motion.div
             key={pattern.id}
             initial={{ opacity: 0, x: -20 }}
@@ -233,7 +234,27 @@ export function PatternInsights({
               </div>
             )}
           </motion.div>
-        ))}
+          ))}
+        </div>
+        
+        {/* Sticky upgrade bar for non-premium */}
+        {!isPremium && (
+          <div className="sticky bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-transparent pt-8 pb-4 -mb-4">
+            <div className="bg-gray-900 text-white rounded-lg p-4 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Unlock Pattern Insights</p>
+                  <p className="text-xs text-gray-300 mt-0.5">
+                    Get detailed analysis of your writing patterns and personalized recommendations
+                  </p>
+                </div>
+                <button className="px-4 py-2 bg-white text-gray-900 text-sm font-medium rounded hover:bg-gray-100 transition-colors">
+                  Upgrade to Premium
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Insights Summary */}
@@ -254,23 +275,6 @@ export function PatternInsights({
                 </p>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-      
-      {/* Premium Upsell */}
-      {!isPremium && (
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center justify-center z-10 -mt-32">
-            <div className="bg-white border border-gray-300 rounded-lg p-4 text-center max-w-xs shadow-lg">
-              <p className="text-sm font-medium text-gray-900 mb-2">Premium Feature</p>
-              <p className="text-xs text-gray-500 mb-3">
-                Unlock detailed pattern analysis and insights
-              </p>
-              <button className="px-4 py-2 bg-gray-900 text-white text-xs rounded hover:bg-black transition-colors">
-                Upgrade to Premium
-              </button>
-            </div>
           </div>
         </div>
       )}
