@@ -14,6 +14,12 @@ export interface Profile {
   ai_usage_frequency?: 'never' | 'rarely' | 'sometimes' | 'often' | 'always';
   primary_goals?: string[];
   onboarded?: boolean;
+  subscription_status?: string;
+  subscription_tier?: string;
+  trial_ends_at?: string;
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  is_premium?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -89,6 +95,12 @@ export interface AIDetectedSection {
   voice_trait_enhanced?: string;
   risk_delta?: number;
   authenticity_delta?: number;
+  voice_similarity?: number; // 0-100 percentage
+  voice_dimensions_affected?: string[];
+  preserved_traits?: string[];
+  voice_explanation?: string;
+  application_count?: number;
+  dismissed?: boolean;
 }
 
 export interface AnalysisScore {
@@ -167,6 +179,37 @@ export interface AnalysisResponse {
   };
 }
 
+export interface VoiceEditingState {
+  voiceSafeMode: boolean;
+  similarityThreshold: number;
+  appliedChanges: ChangeLogEntry[];
+  voiceCalculations: Map<string, number>;
+}
+
+export interface ChangeLogEntry {
+  id: string;
+  timestamp: string;
+  originalText: string;
+  modifiedText: string;
+  voiceSimilarityBefore: number;
+  voiceSimilarityAfter: number;
+  action: 'applied' | 'dismissed' | 'reverted';
+  section?: AIDetectedSection;
+}
+
+export interface VoiceImpactMetrics {
+  overallSimilarity: number;
+  dimensionScores: Array<{
+    name: string;
+    before: number;
+    after: number;
+    delta: number;
+  }>;
+  preservedTraits: string[];
+  affectedTraits: string[];
+  riskLevel: 'low' | 'medium' | 'high';
+}
+
 export interface XAIAnalysisRequest {
   messages: Array<{
     role: 'system' | 'user' | 'assistant';
@@ -220,18 +263,71 @@ export interface VoiceprintSample {
 }
 
 export interface StylometricMetrics {
-  typeTokenRatio: number;
-  uniqueWordRatio: number;
-  averageWordLength: number;
-  averageSentenceLength: number;
-  sentenceLengthStdDev: number;
-  complexSentenceRatio: number;
-  punctuationDensity: Record<string, number>;
-  clauseRatio: number;
-  passiveVoiceRatio: number;
-  rareWordRatio: number;
-  clicheRatio: number;
-  formalityScore: number;
+  lexical: LexicalFeatures;
+  syntactic: SyntacticFeatures;
+  semantic: SemanticFeatures;
+  stylistic: StylisticMarkers;
+  metadata: {
+    wordCount: number;
+    sentenceCount: number;
+    paragraphCount: number;
+    avgWordsPerSentence: number;
+    avgSentencesPerParagraph: number;
+  };
+}
+
+export interface LexicalFeatures {
+  vocabularyRichness: number;
+  avgWordLength: number;
+  wordLengthDistribution: {
+    mean: number;
+    stdDev: number;
+    short: number;
+    medium: number;
+    long: number;
+  };
+  uniqueWordPreferences: string[];
+  commonPhrases: string[];
+  lexicalDiversity: number;
+}
+
+export interface SyntacticFeatures {
+  avgSentenceLength: number;
+  sentenceLengthVariation: number;
+  clauseComplexity: number;
+  punctuationPatterns: {
+    commas: number;
+    semicolons: number;
+    colons: number;
+    dashes: number;
+    exclamations: number;
+    questions: number;
+  };
+  paragraphStructure: {
+    avgParagraphLength: number;
+    paragraphVariation: number;
+  };
+}
+
+export interface SemanticFeatures {
+  topicPreferences: string[];
+  sentimentPatterns: {
+    positive: number;
+    negative: number;
+    neutral: number;
+  };
+  formalityLevel: number;
+  emotionalTone: string;
+  abstractnessLevel: number;
+}
+
+export interface StylisticMarkers {
+  transitionWordsUsage: number;
+  activeVsPassiveRatio: number;
+  contractionFrequency: number;
+  idiomUsage: number;
+  firstPersonUsage: number;
+  rhetoricalDevices: string[];
 }
 
 export interface SemanticSignature {
@@ -247,18 +343,68 @@ export interface SemanticSignature {
 }
 
 export interface VoiceprintTraits {
-  id: string;
-  voiceprint_id: string;
-  version: number;
-  stylometric_metrics: StylometricMetrics;
-  semantic_signature: SemanticSignature;
-  trait_summary: {
-    signature_traits: SignatureTrait[];
-    pitfalls: Pitfall[];
-    summary: string;
+  lexicalSignature: {
+    vocabularyRichness: number;
+    preferredWords: string[];
+    phrasePatterns: string[];
+    wordLengthProfile: {
+      mean: number;
+      stdDev: number;
+      short: number;
+      medium: number;
+      long: number;
+    };
   };
-  target_thresholds: TargetThresholds;
-  created_at: string;
+  syntacticSignature: {
+    sentenceComplexity: number;
+    punctuationStyle: {
+      commas: number;
+      semicolons: number;
+      colons: number;
+      dashes: number;
+      exclamations: number;
+      questions: number;
+    };
+    paragraphRhythm: {
+      avgParagraphLength: number;
+      paragraphVariation: number;
+    };
+  };
+  semanticSignature: {
+    tonalProfile: string;
+    formalityLevel: number;
+    topicalInterests: string[];
+  };
+  stylisticSignature: {
+    voiceCharacteristics: {
+      activeVoicePreference: number;
+      contractionUsage: number;
+      personalPronounUsage: number;
+    };
+    writingPatterns: {
+      transitionStyle: number;
+      rhetoricalDevices: string[];
+    };
+  };
+  consistency: number;
+  confidence: number;
+}
+
+export interface VoiceProfile {
+  id: string;
+  userId: string;
+  traits: VoiceprintTraits;
+  confidence: number;
+  sampleCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface VoiceEvolution {
+  driftScore: number;
+  changedDimensions: string[];
+  trend: 'stable' | 'evolving' | 'shifting';
+  recommendations: string[];
 }
 
 export interface SignatureTrait {

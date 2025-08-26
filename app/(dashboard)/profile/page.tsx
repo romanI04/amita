@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { useToast } from '@/components/ui/Toast'
 import { VoiceFingerprint, VoiceLocks, ProtectionScore, VoiceEvolution } from '@/components/voice'
 import { TrendsChart, BeforeAfterCard, PatternInsights } from '@/components/history'
+// Voice DNA components removed - ML system replacing this functionality
 import AppLayout from '@/components/layout/AppLayout'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { SkeletonLoader } from '@/components/ui/SkeletonLoader'
@@ -22,10 +23,12 @@ export default function ProfilePage() {
   const { state: voiceProfileState, refreshProfile } = useVoiceProfile()
   const { showToast } = useToast()
   
-  const [activeTab, setActiveTab] = useState<'overview' | 'fingerprint' | 'locks' | 'protection' | 'evolution'>('overview')
-  const [isPremium, setIsPremium] = useState(false) // Would come from subscription
+  const [activeTab, setActiveTab] = useState<'overview' | 'fingerprint' | 'locks' | 'protection' | 'evolution' | 'dna'>('overview')
   const [analyses, setAnalyses] = useState<WritingSample[]>([])
   const [loadingAnalyses, setLoadingAnalyses] = useState(true)
+  
+  // Get isPremium from user profile
+  const isPremium = profile?.is_premium || false
   
   // Fetch recent analyses for the overview
   useEffect(() => {
@@ -55,7 +58,8 @@ export default function ProfilePage() {
   
   // Calculate profile metrics
   const profileMetrics = useMemo(() => {
-    const samples = voiceProfileState.samples || []
+    // Use writing samples from analyses for metrics when no voiceprint exists
+    const samples = analyses || []
     const totalWords = samples.reduce((sum, s) => sum + (s.content?.split(/\s+/).length || 0), 0)
     const avgAuthenticity = samples.length > 0 
       ? samples.reduce((sum, s) => sum + (s.authenticity_score || 0), 0) / samples.length 
@@ -71,35 +75,84 @@ export default function ProfilePage() {
       avgAIRisk,
       lastUpdated: voiceProfileState.voiceprint?.updated_at || null
     }
-  }, [voiceProfileState])
+  }, [analyses, voiceProfileState.voiceprint])
   
-  // Mock voice dimensions for fingerprint
-  const voiceDimensions = [
-    { name: 'Vocabulary', value: 75, baseline: 70, description: 'Word choice sophistication' },
-    { name: 'Flow', value: 60, baseline: 65, description: 'Rhythm and pacing' },
-    { name: 'Formality', value: 45, baseline: 50, description: 'Professional vs casual' },
-    { name: 'Emotion', value: 80, baseline: 75, description: 'Emotional expression' },
-    { name: 'Clarity', value: 85, baseline: 80, description: 'Clear communication' },
-    { name: 'Originality', value: 70, baseline: 60, description: 'Unique expression' },
-    { name: 'Consistency', value: 65, baseline: 70, description: 'Style consistency' },
-    { name: 'Authenticity', value: 90, baseline: 85, description: 'Human-like quality' }
-  ]
-  
-  // Mock vulnerabilities for protection score
-  const vulnerabilities = [
-    {
-      id: 'transitions',
-      severity: 'high' as const,
-      description: 'Predictable transition phrases',
-      fix: 'Vary your connecting words and phrases'
-    },
-    {
-      id: 'sentence_starts',
-      severity: 'medium' as const,
-      description: 'Repetitive sentence openings',
-      fix: 'Mix up how you begin sentences'
+  // Compute voice dimensions from real traits
+  const voiceDimensions = useMemo(() => {
+    const traits = voiceProfileState.traits
+    if (!traits?.lexicalSignature) {
+      // Return default dimensions if no traits yet
+      return [
+        { name: 'Vocabulary', value: 50, baseline: 50, description: 'Word choice sophistication' },
+        { name: 'Flow', value: 50, baseline: 50, description: 'Rhythm and pacing' },
+        { name: 'Formality', value: 50, baseline: 50, description: 'Professional vs casual' },
+        { name: 'Emotion', value: 50, baseline: 50, description: 'Emotional expression' },
+        { name: 'Clarity', value: 50, baseline: 50, description: 'Clear communication' },
+        { name: 'Originality', value: 50, baseline: 50, description: 'Unique expression' },
+        { name: 'Consistency', value: 50, baseline: 50, description: 'Style consistency' },
+        { name: 'Authenticity', value: 50, baseline: 50, description: 'Human-like quality' }
+      ]
     }
-  ]
+    
+    // Map voice traits to dimensions (normalized to 0-100 scale)
+    return [
+      { 
+        name: 'Vocabulary', 
+        value: Math.round(traits.lexicalSignature.vocabularyRichness * 100), 
+        baseline: 70, 
+        description: 'Word choice sophistication' 
+      },
+      { 
+        name: 'Flow', 
+        value: Math.round(traits.syntacticSignature.paragraphRhythm.avgParagraphLength), 
+        baseline: 65, 
+        description: 'Rhythm and pacing' 
+      },
+      { 
+        name: 'Formality', 
+        value: Math.round(traits.semanticSignature.formalityLevel * 100), 
+        baseline: 50, 
+        description: 'Professional vs casual' 
+      },
+      { 
+        name: 'Emotion', 
+        value: Math.round(traits.stylisticSignature.voiceCharacteristics.personalPronounUsage * 100), 
+        baseline: 75, 
+        description: 'Emotional expression' 
+      },
+      { 
+        name: 'Clarity', 
+        value: Math.round(traits.syntacticSignature.sentenceComplexity * 100), 
+        baseline: 80, 
+        description: 'Clear communication' 
+      },
+      { 
+        name: 'Originality', 
+        value: Math.round(traits.lexicalSignature.vocabularyRichness * 100), 
+        baseline: 60, 
+        description: 'Unique expression' 
+      },
+      { 
+        name: 'Consistency', 
+        value: Math.round(traits.consistency * 100), 
+        baseline: 70, 
+        description: 'Style consistency' 
+      },
+      { 
+        name: 'Authenticity', 
+        value: Math.round(profileMetrics.avgAuthenticity), 
+        baseline: 85, 
+        description: 'Human-like quality' 
+      }
+    ]
+  }, [voiceProfileState.traits, profileMetrics.avgAuthenticity])
+  
+  // Compute vulnerabilities from real traits
+  const vulnerabilities = useMemo(() => {
+    // For now, return empty array since trait_summary doesn't exist in VoiceprintTraits
+    // This would need to be computed from actual trait analysis
+    return []
+  }, [])
   
   if (loading) {
     return (
@@ -125,8 +178,41 @@ export default function ProfilePage() {
     return null
   }
   
+  // Show computing status if voiceprint is being processed
+  if (voiceProfileState.voiceprint?.status === 'computing') {
+    return (
+      <ErrorBoundary>
+        <AppLayout>
+          <div className="min-h-screen bg-white">
+            <div className="max-w-4xl mx-auto py-16 px-6">
+              <div className="text-center">
+                <div className="animate-pulse">
+                  <span style={{ fontFamily: 'SF Mono, Monaco, monospace' }} className="text-6xl text-gray-400">
+                    ••••••••
+                  </span>
+                </div>
+                <h1 className="text-3xl font-light text-gray-900 mt-6 mb-2">
+                  Creating Your Voice Profile
+                </h1>
+                <p className="text-gray-500 mb-8 max-w-2xl mx-auto">
+                  We&apos;re analyzing your writing samples to build your unique voice fingerprint. This usually takes a few seconds.
+                </p>
+                <Button 
+                  onClick={() => refreshProfile()}
+                  className="px-8"
+                >
+                  Check Status
+                </Button>
+              </div>
+            </div>
+          </div>
+        </AppLayout>
+      </ErrorBoundary>
+    )
+  }
+  
   // No voice profile yet
-  if (!voiceProfileState.voiceprint) {
+  if (!voiceProfileState.voiceprint || voiceProfileState.voiceprint?.status === 'failed') {
     return (
       <ErrorBoundary>
         <AppLayout>
@@ -195,6 +281,7 @@ export default function ProfilePage() {
   // Voice profile exists - show dashboard
   const tabs = [
     { id: 'overview', label: 'Overview', premium: false },
+    { id: 'dna', label: 'Voice DNA (ML)', premium: false },
     { id: 'fingerprint', label: 'Voice Fingerprint', premium: false },
     { id: 'locks', label: 'Smart Locks', premium: true },
     { id: 'protection', label: 'Protection Score', premium: true },
@@ -376,7 +463,7 @@ export default function ProfilePage() {
               {activeTab === 'protection' && (
                 <div className="max-w-3xl mx-auto">
                   <ProtectionScore 
-                    score={72}
+                    score={Math.round(100 - profileMetrics.avgAIRisk)}
                     vulnerabilities={vulnerabilities}
                     isPremium={isPremium}
                   />
@@ -386,6 +473,12 @@ export default function ProfilePage() {
               {activeTab === 'evolution' && (
                 <div className="max-w-4xl mx-auto">
                   <VoiceEvolution isPremium={isPremium} />
+                </div>
+              )}
+              
+              {activeTab === 'dna' && (
+                <div className="max-w-6xl mx-auto">
+                  {/* ML visualization will be integrated here */}
                 </div>
               )}
             </motion.div>

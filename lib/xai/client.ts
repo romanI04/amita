@@ -151,7 +151,7 @@ export class XAIClient {
         messages: [
           {
             role: 'system',
-            content: 'You are an expert writing analyst specializing in detecting AI-generated content and analyzing authentic human writing styles. Provide detailed, structured analysis in JSON format.'
+            content: 'You detect AI-written text. Score based on EXACT patterns. Return JSON only, no explanations.'
           },
           {
             role: 'user',
@@ -159,8 +159,8 @@ export class XAIClient {
           }
         ],
         model: 'grok-4',
-        temperature: 0.3,
-        max_tokens: 5000  // Balanced for reasoning + output without timeout
+        temperature: 0.7,
+        max_tokens: 3000  // Balanced for quality analysis
       })
 
       // Check if we got a valid response
@@ -188,7 +188,7 @@ export class XAIClient {
         messages: [
           {
             role: 'system',
-            content: 'You are a writing coach helping users maintain their authentic voice while improving their writing skills. Provide specific, actionable suggestions.'
+            content: 'Find exact AI phrases. Give exact human rewrites. JSON only.'
           },
           {
             role: 'user',
@@ -196,8 +196,8 @@ export class XAIClient {
           }
         ],
         model: 'grok-4',
-        temperature: 0.3,
-        max_tokens: 4000  // Increased for reasoning tokens
+        temperature: 0.7,
+        max_tokens: 2000  // Quality improvement suggestions
       })
 
       // Check if suggestions response has content
@@ -312,9 +312,29 @@ export class XAIClient {
 
   private buildAnalysisPrompt(text: string): string {
     return `
-Analyze this text for AI-generated content. Focus on linguistic patterns and voice fingerprinting.
+You're detecting AI-written text. Score 0-100 based on these EXACT patterns:
 
-Return a JSON response with this structure:
+HIGH AI INDICATORS (+15-20 each):
+• Opens with "In today's [X] landscape"
+• Lists with First/Second/Third or Furthermore/Additionally 
+• "It's important to note" / "It's worth mentioning"
+• Perfect grammar with zero contractions
+• Every paragraph same length (±10 words)
+
+MEDIUM AI INDICATORS (+8-12 each):
+• Hedging: "might be", "could potentially", "seems to suggest"
+• Corporate speak: "leverage", "utilize", "implement"
+• Explaining both sides equally ("On one hand...on the other")
+• Zero typos, zero fragments, zero personality
+
+HUMAN INDICATORS (-10-15 each):
+• Sudden topic shifts mid-paragraph
+• Contractions and fragments ("Can't believe...", "Thing is,")
+• Specific prices/dates/names ("$47 at Walmart", "my cousin Mike")
+• Emotional outbursts or rants
+• Inconsistent formatting/capitalization
+
+Return ONLY this JSON (no explanation):
 
 {
   "ai_confidence_score": <number 0-100>,
@@ -403,34 +423,26 @@ Identify 3-5 specific AI patterns with exact quotes and improvements.
   }
 
   private buildSuggestionPrompt(text: string, analysis: any): string {
+    const aiScore = analysis.ai_confidence_score || 0
+    
     return `
-You are a world-class writing coach who charges $500/hour. Provide SPECIFIC, ACTIONABLE advice that would transform this writing from AI-detectable to unmistakably human.
+Text analyzed (AI score: ${aiScore}%)
 
-Analysis Summary:
-- AI Confidence Score: ${analysis.ai_confidence_score}%
-- Authenticity Score: ${analysis.authenticity_score}%
-- Detected Patterns: ${analysis.detected_sections?.map((s: any) => s.linguistic_marker || s.reason).join(', ') || 'None'}
+Provide exactly 5 improvements:
 
-Original Text:
-"${text}"
+1-3: REWRITE suggestions
+Find the 3 most AI-sounding sentences and provide COMPLETE rewrites.
+Format: "Original: [full sentence] → Rewrite: [complete improved sentence]"
 
-Provide 5-7 SPECIFIC suggestions that a professional writer would actually use:
+4-5: WRITING TIPS specific to this text
+Based on the patterns detected, give 2 actionable tips.
+Example: "Your opening paragraphs repeat 'The system...' - Try starting with action verbs instead"
 
-DO NOT give generic advice like "vary sentence structure" 
-INSTEAD say: "Replace your 3rd paragraph's parallel opening ('The system provides...The system enables...The system allows') with active voice: 'Users can now...', 'This unlocks...', 'You'll discover...'"
+Text to improve:
+"${text.substring(0, 800)}"
 
-DO NOT say "add personal anecdotes"
-INSTEAD say: "After 'proven methodology' in paragraph 2, insert a specific moment of discovery: 'I still remember the morning I realized...'"
-
-DO NOT say "use more natural language"
-INSTEAD say: "Replace 'It is imperative to understand' with 'Here's the thing—' or 'Look,' or simply delete it"
-
-Each suggestion must include:
-1. The EXACT location/phrase to change
-2. The SPECIFIC replacement or addition
-3. The psychological/linguistic reason it works
-
-Format as JSON array of detailed suggestion strings.
+Return as JSON array of strings, each a complete suggestion.
+Ensure all rewrites are COMPLETE SENTENCES with proper grammar.
 `
   }
 

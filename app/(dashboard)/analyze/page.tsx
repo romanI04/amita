@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuth } from '@/lib/auth/context'
 import { useToast } from '@/components/ui/Toast'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { 
   SubtleBlocks,
@@ -16,6 +16,17 @@ import {
 import AppLayout from '@/components/layout/AppLayout'
 import { ArrowRightIcon } from '@heroicons/react/24/outline'
 import { motion, AnimatePresence } from 'framer-motion'
+import { voiceCalculator } from '@/lib/voice/real-time-calculator'
+import { VoiceImpactIndicator, VoiceImpactBadge, VoiceComparison } from '@/components/voice/VoiceImpactIndicator'
+import { VoiceSafeToggle, VoiceSafeBadge } from '@/components/voice/VoiceSafeToggle'
+import { TrustIndicators, TrustExplanation } from '@/components/voice/TrustBadges'
+import { ActivityFeed, ActivityIndicator, ActivitySummary } from '@/components/history/ActivityFeed'
+import { VoiceTease, InlineVoiceTeaser, VoiceProfileCTA } from '@/components/voice/VoiceTeasers'
+import { UpgradePrompt, UpgradeBanner, ValueDisplay } from '@/components/voice/SmartUpgradePrompts'
+import { MobileBottomSheet } from '@/components/voice/MobileBottomSheet'
+// Voice DNA components removed - ML system replacing this functionality
+// Voice profile will be managed locally in this component
+import type { VoiceEditingState, ChangeLogEntry } from '@/types'
 
 interface AnalysisResult {
   ai_confidence_score: number
@@ -31,27 +42,70 @@ interface AnalysisResult {
     readability: string
     structure: string
   }
+  sentenceScores?: Array<{
+    index: number
+    text: string
+    score: number
+    features: {
+      wordCount: number
+      hasAIPhrases: boolean
+      formalityScore: boolean
+    }
+  }>
 }
 
 export default function AnalyzePage() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const { showToast } = useToast()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  // Voice profile state - would normally come from context
+  const [voiceProfileState] = useState({
+    voiceprint: null,
+    samples: [],
+    traits: null,
+    status: 'not_created' as const
+  })
   const [text, setText] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState(0)
+  const [analysisMessage, setAnalysisMessage] = useState('')
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [showSuggestions, setShowSuggestions] = useState(true) // Auto-expanded by default
   const [showAllSuggestions, setShowAllSuggestions] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
   const [typingTimer, setTypingTimer] = useState<NodeJS.Timeout | null>(null)
   const [activeMetric, setActiveMetric] = useState<string | null>(null)
-  const [highlightedSections, setHighlightedSections] = useState<Array<{start: number, end: number, reason: string, confidence: number, suggestion?: string, originalText?: string, replacementText?: string}>>([])
+  const [highlightedSections, setHighlightedSections] = useState<Array<{start: number, end: number, reason: string, confidence: number, suggestion?: string, originalText?: string, replacementText?: string, voiceSimilarity?: number}>>([])
   const [isSaved, setIsSaved] = useState(false)
   const [selectedSection, setSelectedSection] = useState<{section: any, x: number, y: number, useFixed?: boolean} | null>(null)
   const [inputMode, setInputMode] = useState<'text' | 'file'>('text')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [loadedSampleTitle, setLoadedSampleTitle] = useState<string | null>(null)
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState<any>(null)
+  const [mobileBottomSheetSection, setMobileBottomSheetSection] = useState<any>(null)
+  const [isMobile, setIsMobile] = useState(false)
+  
+  // Detect mobile device
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768)
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+  
+  // Voice editing state
+  const [voiceEditingState, setVoiceEditingState] = useState<VoiceEditingState>({
+    voiceSafeMode: profile?.is_premium ? true : false,
+    similarityThreshold: 70,
+    appliedChanges: [],
+    voiceCalculations: new Map()
+  })
+  
   const textAreaRef = useRef<HTMLTextAreaElement>(null)
   const textContainerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -62,12 +116,70 @@ export default function AnalyzePage() {
   const canAnalyze = charCount >= 50
 
   useEffect(() => {
-    const savedText = sessionStorage.getItem('quickAnalysisText')
-    if (savedText) {
-      setText(savedText)
-      sessionStorage.removeItem('quickAnalysisText')
+    // Load from sample_id if provided
+    const sampleId = searchParams.get('sample_id')
+    if (sampleId && user) {
+      loadSampleFromHistory(sampleId)
+    } else {
+      // Otherwise check for quick analysis text
+      const savedText = sessionStorage.getItem('quickAnalysisText')
+      if (savedText) {
+        setText(savedText)
+        sessionStorage.removeItem('quickAnalysisText')
+      }
     }
-  }, [])
+  }, [searchParams, user])
+
+  const loadSampleFromHistory = async (sampleId: string) => {
+    try {
+      const response = await fetch(`/api/user/history?sample_id=${sampleId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to load analysis')
+      }
+
+      const data = await response.json()
+      if (data.analyses && data.analyses.length > 0) {
+        const sample = data.analyses[0]
+        setText(sample.content || '')
+        setLoadedSampleTitle(sample.title || 'Previous Analysis')
+        
+        // If the sample has analysis results, show them
+        if (sample.ai_confidence_score !== undefined) {
+          setAnalysisResult({
+            ai_confidence_score: sample.ai_confidence_score || 0,
+            authenticity_score: sample.authenticity_score || 0,
+            detected_sections: sample.detected_sections || [],
+            improvement_suggestions: sample.improvement_suggestions || [],
+            style_analysis: sample.style_analysis || {
+              tone: '',
+              readability: '',
+              structure: ''
+            }
+          })
+          
+          // If there are detected sections, highlight them
+          if (sample.detected_sections && sample.detected_sections.length > 0) {
+            const sections = sample.detected_sections.map((section: any) => ({
+              start: 0, // These would need to be calculated based on actual positions
+              end: section.text ? section.text.length : 0,
+              reason: section.reason || '',
+              confidence: section.confidence || 0,
+              originalText: section.text || ''
+            }))
+            setHighlightedSections(sections)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading sample:', error)
+      showToast('Failed to load analysis from history', 'error')
+    }
+  }
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value)
@@ -90,17 +202,25 @@ export default function AnalyzePage() {
     setIsAnalyzing(true)
     setAnalysisResult(null)
     setAnalysisProgress(0)
+    setAnalysisMessage('Tinkering with patterns...')
 
-    // Simulate progress
+    // Progress with messages
+    const messages = [
+      { progress: 20, text: 'Scanning for AI markers...' },
+      { progress: 40, text: 'Analyzing sentence structures...' },
+      { progress: 60, text: 'Thinking ultrahard...' },
+      { progress: 80, text: 'Crafting improvements...' },
+      { progress: 90, text: 'Almost there...' }
+    ]
+    
+    let messageIndex = 0
     const progressInterval = setInterval(() => {
-      setAnalysisProgress(prev => {
-        if (prev >= 90) {
-          clearInterval(progressInterval)
-          return 90
-        }
-        return prev + 10
-      })
-    }, 200)
+      if (messageIndex < messages.length) {
+        setAnalysisProgress(messages[messageIndex].progress)
+        setAnalysisMessage(messages[messageIndex].text)
+        messageIndex++
+      }
+    }, 600)
 
     try {
       const response = await fetch('/api/analyze', {
@@ -117,7 +237,19 @@ export default function AnalyzePage() {
       setAnalysisProgress(100)
 
       if (!response.ok) {
-        throw new Error('Analysis failed')
+        const errorData = await response.json()
+        
+        // Handle limit reached error specifically
+        if (response.status === 403 && errorData.limits) {
+          showToast(errorData.details || 'Monthly analysis limit reached', 'error')
+          // Optionally redirect to pricing
+          setTimeout(() => {
+            router.push('/pricing')
+          }, 2000)
+          return
+        }
+        
+        throw new Error(errorData.error || 'Analysis failed')
       }
 
       const result = await response.json()
@@ -125,35 +257,95 @@ export default function AnalyzePage() {
       setIsSaved(true) // Mark as saved to database
       showToast('Analysis complete and saved', 'success')
       
-      // Process AI patterns for inline highlighting and map suggestions
+      
+      // Process AI patterns for inline highlighting with voice calculations
       if (result.detected_sections && result.improvement_suggestions) {
-        const sections = result.detected_sections.map((section: any, idx: number) => {
-          const index = text.toLowerCase().indexOf(section.text.toLowerCase())
-          // Map relevant suggestion to each section
-          const relevantSuggestion = result.improvement_suggestions[idx] || 
-            result.improvement_suggestions.find((s: string) => 
-              s.toLowerCase().includes(section.reason.toLowerCase().split('.')[0])
-            ) || result.improvement_suggestions[0]
+        const sectionsWithVoice = await Promise.all(
+          result.detected_sections.map(async (section: any, idx: number) => {
+            const index = text.toLowerCase().indexOf(section.text.toLowerCase())
+            // Map relevant suggestion to each section
+            const relevantSuggestion = result.improvement_suggestions[idx] || 
+              result.improvement_suggestions.find((s: string) => 
+                s.toLowerCase().includes(section.reason.toLowerCase().split('.')[0])
+              ) || result.improvement_suggestions[0]
+            
+            // Check if the suggestion contains a rewrite (format: "Original: X → Rewrite: Y")
+            let replacementText = null
+            if (relevantSuggestion && relevantSuggestion.includes('→ Rewrite:')) {
+              const rewriteMatch = relevantSuggestion.match(/→ Rewrite: (.+)$/i)
+              if (rewriteMatch) {
+                replacementText = rewriteMatch[1].trim()
+              }
+            }
+            
+            // Calculate voice similarity if we have a replacement
+            let voiceSimilarity = 50 // Default
+            if (replacementText) {
+              const voiceResult = await voiceCalculator.calculateSimilarity(
+                section.text,
+                replacementText,
+                voiceProfileState.traits || undefined
+              )
+              voiceSimilarity = voiceResult.similarity
+              
+              // Cache the calculation
+              voiceEditingState.voiceCalculations.set(
+                `${section.text}::${replacementText}`,
+                voiceSimilarity
+              )
+            }
+            
+            return {
+              start: index,
+              end: index + section.text.length,
+              reason: section.reason,
+              confidence: section.confidence,
+              suggestion: relevantSuggestion,
+              originalText: section.text,
+              replacementText: replacementText,
+              voiceSimilarity
+            }
+          })
+        )
+        
+        const validSections = sectionsWithVoice.filter((s: any) => s.start !== -1)
+        
+        // Apply voice-safe filter if enabled and user is premium
+        if (voiceEditingState.voiceSafeMode && profile?.is_premium) {
+          const voiceSafeSections = validSections.filter(
+            s => s.voiceSimilarity >= voiceEditingState.similarityThreshold
+          )
+          setHighlightedSections(voiceSafeSections)
           
-          // Generate improved text based on the pattern
-          const replacementText = generateImprovedText(section.text, section.reason)
-          
-          return {
-            start: index,
-            end: index + section.text.length,
-            reason: section.reason,
-            confidence: section.confidence,
-            suggestion: relevantSuggestion,
-            originalText: section.text,
-            replacementText: replacementText
+          if (voiceSafeSections.length < validSections.length) {
+            showToast(
+              `Showing ${voiceSafeSections.length} voice-safe suggestions (${validSections.length - voiceSafeSections.length} filtered)`,
+              'info'
+            )
           }
-        }).filter((s: any) => s.start !== -1)
-        setHighlightedSections(sections)
+        } else {
+          setHighlightedSections(validSections)
+        }
       }
       
       // Flash the results metrics
       setActiveMetric('results')
       setTimeout(() => setActiveMetric(null), 3000)
+      
+      // Show upgrade prompt for free users after 3rd analysis
+      if (!profile?.is_premium && result.authenticity_score > 0) {
+        const improvement = Math.round(100 - result.ai_confidence_score)
+        setTimeout(() => {
+          setShowUpgradePrompt({
+            trigger: 'analysis_complete',
+            metric: {
+              label: 'Authenticity',
+              value: `${result.authenticity_score}%`,
+              improvement
+            }
+          })
+        }, 2000)
+      }
     } catch (error) {
       showToast('Analysis failed. Please try again.', 'error')
       console.error('Analysis error:', error)
@@ -236,59 +428,172 @@ export default function AnalyzePage() {
     return () => document.removeEventListener('click', handleClickOutside)
   }, [selectedSection])
   
-  // Generate improved text based on AI pattern
-  const generateImprovedText = (originalText: string, reason: string): string => {
-    // Simple improvements based on common patterns
-    let improved = originalText
-    
-    if (reason.toLowerCase().includes('repetitive')) {
-      // Remove repetitive structure
-      improved = originalText.replace(/The fact that/gi, '').trim()
-      improved = improved.charAt(0).toUpperCase() + improved.slice(1)
-    } else if (reason.toLowerCase().includes('passive')) {
-      // Convert passive to active voice (simplified)
-      improved = originalText.replace(/is being /gi, '').replace(/was being /gi, '')
-    } else if (reason.toLowerCase().includes('formal') || reason.toLowerCase().includes('robotic')) {
-      // Make it more conversational
-      improved = originalText
-        .replace(/It is imperative/gi, "It's important")
-        .replace(/utilize/gi, 'use')
-        .replace(/implement/gi, 'set up')
-        .replace(/facilitate/gi, 'help')
-    } else if (reason.toLowerCase().includes('generic')) {
-      // Add specificity (this would ideally be more context-aware)
-      improved = originalText.replace(/many/gi, 'several').replace(/things/gi, 'aspects')
-    }
-    
-    // If no specific improvement, suggest a slight rewrite
-    if (improved === originalText) {
-      const words = originalText.split(' ')
-      if (words.length > 5) {
-        // Rearrange sentence structure slightly
-        improved = words.slice(Math.floor(words.length/2)).join(' ') + ', ' + 
-                  words.slice(0, Math.floor(words.length/2)).join(' ')
+  // Generate improved text using AI rewrite API
+  const generateImprovedText = async (originalText: string, reason: string): Promise<string | null> => {
+    try {
+      const response = await fetch('/api/rewrite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: originalText,
+          sections: [{
+            text: originalText,
+            reason: reason,
+            confidence: 70 // Default confidence for rewrite
+          }]
+        })
+      })
+
+      if (!response.ok) {
+        console.error('Rewrite API failed')
+        return null
       }
+
+      const data = await response.json()
+      return data.rewrittenText || null
+    } catch (error) {
+      console.error('Error calling rewrite API:', error)
+      return null
+    }
+  }
+  
+  // Apply all fixes at once to avoid overlapping replacements
+  const applyAllFixes = async () => {
+    if (highlightedSections.length === 0) {
+      showToast('No fixes to apply', 'info')
+      return
     }
     
-    return improved
+    showToast('Generating improvements...', 'info')
+    
+    // First, ensure all sections have replacements
+    const sectionsWithReplacements = await Promise.all(
+      highlightedSections.map(async (section) => {
+        if (!section.originalText) return null
+        
+        let replacementText = section.replacementText
+        if (!replacementText) {
+          // Fetch from API if not available
+          const generated = await generateImprovedText(section.originalText, section.reason)
+          replacementText = generated || undefined
+        }
+        
+        if (!replacementText) return null
+        
+        return {
+          ...section,
+          replacementText
+        }
+      })
+    )
+    
+    // Filter out nulls and sort by position (from end to start)
+    const validSections = sectionsWithReplacements
+      .filter(s => s !== null && s.replacementText)
+      .sort((a, b) => b!.start - a!.start) as typeof highlightedSections
+    
+    if (validSections.length === 0) {
+      showToast('Could not generate improvements', 'error')
+      return
+    }
+    
+    let newText = text
+    let appliedCount = 0
+    
+    // Apply replacements from end to start to preserve positions
+    validSections.forEach(section => {
+      const originalText = section.originalText!
+      const replacementText = section.replacementText!
+      
+      // Find the exact occurrence at the expected position
+      const expectedSubstring = newText.substring(section.start, section.end)
+      
+      if (expectedSubstring === originalText) {
+        // Apply the replacement at the exact position
+        newText = newText.substring(0, section.start) + 
+                  replacementText + 
+                  newText.substring(section.end)
+        appliedCount++
+      }
+    })
+    
+    if (appliedCount > 0) {
+      setText(newText)
+      setHighlightedSections([]) // Clear all highlights after applying
+      showToast(`Applied ${appliedCount} improvement${appliedCount > 1 ? 's' : ''}`, 'success')
+    } else {
+      showToast('No valid fixes could be applied', 'warning')
+    }
   }
   
   // Apply the fix to the text
-  const applyFix = (section: any) => {
-    if (!section.replacementText) return
+  const applyFix = async (section: any) => {
+    if (!section.originalText) return
+    
+    // If no replacement text, fetch it from API
+    let replacementText = section.replacementText
+    if (!replacementText) {
+      showToast('Generating improvement...', 'info')
+      replacementText = await generateImprovedText(section.originalText, section.reason)
+      if (!replacementText) {
+        showToast('Failed to generate improvement', 'error')
+        return
+      }
+    }
+    
+    // Find the exact position of the original text to avoid overlap issues
+    const originalText = section.originalText
+    const currentIndex = text.indexOf(originalText)
+    
+    if (currentIndex === -1) {
+      showToast('Could not find the text to replace. It may have been modified.', 'error')
+      return
+    }
     
     // Create new text with the replacement
-    const beforeText = text.substring(0, section.start)
-    const afterText = text.substring(section.end)
-    const newText = beforeText + section.replacementText + afterText
+    const beforeText = text.substring(0, currentIndex)
+    const afterText = text.substring(currentIndex + originalText.length)
+    const newText = beforeText + replacementText + afterText
+    
+    // Calculate the length difference for position adjustment
+    const lengthDiff = replacementText.length - originalText.length
     
     // Update the text
     setText(newText)
     
-    // Remove this section from highlights since it's been fixed
-    setHighlightedSections(prev => prev.filter(s => 
-      s.start !== section.start || s.end !== section.end
-    ))
+    // Track the change in activity log
+    const changeEntry: ChangeLogEntry = {
+      id: `change-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: new Date().toISOString(),
+      originalText: originalText,
+      modifiedText: replacementText,
+      voiceSimilarityBefore: 100, // Original text is 100% similar to itself
+      voiceSimilarityAfter: section.voiceSimilarity || 50,
+      action: 'applied',
+      section: section
+    }
+    
+    setVoiceEditingState(prev => ({
+      ...prev,
+      appliedChanges: [...prev.appliedChanges, changeEntry]
+    }))
+    
+    // Adjust positions of remaining highlights
+    setHighlightedSections(prev => prev.map(s => {
+      if (s.start === section.start && s.end === section.end) {
+        // This is the fixed section, remove it
+        return null
+      }
+      // Adjust positions for sections after the changed text
+      if (s.start > currentIndex) {
+        return {
+          ...s,
+          start: s.start + lengthDiff,
+          end: s.end + lengthDiff
+        }
+      }
+      return s
+    }).filter(Boolean) as typeof highlightedSections)
     
     // Close the popup
     setSelectedSection(null)
@@ -310,17 +615,27 @@ export default function AnalyzePage() {
         parts.push(text.substring(lastIndex, section.start))
       }
       
-      // Add highlighted section with Grammarly-style underline
-      const highlightStyle = section.confidence > 70 ? 'border-b-2 border-red-500 bg-red-50' : 
-                            section.confidence > 40 ? 'border-b-2 border-yellow-500 bg-yellow-50' : 
-                            'border-b-2 border-blue-500 bg-blue-50'
+      // Add highlighted section with voice-aware styling
+      const voiceSim = section.voiceSimilarity || 50
+      const voiceStyle = voiceSim >= 70 
+        ? 'border-b-2 border-gray-400 bg-gray-50' // Voice-safe
+        : voiceSim >= 50
+        ? 'border-b-2 border-yellow-500 bg-yellow-50' // Caution
+        : 'border-b-2 border-red-500 bg-red-50' // Risk
       
       parts.push(
         <span
           key={idx}
-          className={`${highlightStyle} rounded-sm cursor-pointer`}
+          className={`${voiceStyle} rounded-sm cursor-pointer relative group inline-block`}
           onClick={(e) => {
             e.stopPropagation()
+            
+            // Check if mobile - show bottom sheet instead
+            if (isMobile) {
+              setMobileBottomSheetSection(section)
+              return
+            }
+            
             const rect = (e.target as HTMLElement).getBoundingClientRect()
             const containerRect = textContainerRef.current?.getBoundingClientRect()
             if (containerRect) {
@@ -360,6 +675,12 @@ export default function AnalyzePage() {
           }}
         >
           {text.substring(section.start, section.end)}
+          {/* Voice impact indicator on hover */}
+          {section.voiceSimilarity !== undefined && (
+            <span className="absolute -top-8 left-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+              <VoiceImpactBadge similarity={section.voiceSimilarity} className="shadow-lg" />
+            </span>
+          )}
         </span>
       )
       
@@ -394,12 +715,83 @@ export default function AnalyzePage() {
               <span className="text-base text-gray-900 py-2">Analyze</span>
             </nav>
             
-            <h1 className="text-3xl font-light text-gray-900 mb-2">
-              Writing Analysis
-            </h1>
-            <p className="text-gray-500">
-              Deep AI detection and authenticity assessment
-            </p>
+            <div className="flex items-start justify-between">
+              <div>
+                <h1 className="text-3xl font-light text-gray-900 mb-2">
+                  Writing Analysis
+                </h1>
+                <p className="text-gray-500">
+                  Deep AI detection and authenticity assessment
+                </p>
+              </div>
+              
+              {/* Activity Feed and Indicators */}
+              <div className="flex items-center gap-3">
+                {voiceEditingState.appliedChanges.length > 0 && (
+                  <ActivityIndicator changeCount={voiceEditingState.appliedChanges.length} />
+                )}
+                <ActivityFeed 
+                  changes={voiceEditingState.appliedChanges}
+                  onRevert={(changeId) => {
+                    // Handle revert logic
+                    const change = voiceEditingState.appliedChanges.find(c => c.id === changeId)
+                    if (change) {
+                      // Revert the change in the text
+                      setText(text.replace(change.modifiedText, change.originalText))
+                      // Update the change log
+                      setVoiceEditingState(prev => ({
+                        ...prev,
+                        appliedChanges: prev.appliedChanges.map(c => 
+                          c.id === changeId ? { ...c, action: 'reverted' as const } : c
+                        )
+                      }))
+                      showToast('Change reverted', 'success')
+                    }
+                  }}
+                  onExport={() => {
+                    // Export activity log
+                    const log = voiceEditingState.appliedChanges.map(c => 
+                      `${c.timestamp}: Changed "${c.originalText}" to "${c.modifiedText}" (Voice: ${c.voiceSimilarityBefore}% → ${c.voiceSimilarityAfter}%)`
+                    ).join('\n')
+                    const blob = new Blob([log], { type: 'text/plain' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = 'activity-log.txt'
+                    a.click()
+                  }}
+                />
+              </div>
+            </div>
+            
+            {/* Show when loaded from history */}
+            {loadedSampleTitle && (
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-sm text-blue-900">
+                      Loaded from history: <strong>{loadedSampleTitle}</strong>
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setText('')
+                      setLoadedSampleTitle(null)
+                      setAnalysisResult(null)
+                      setHighlightedSections([])
+                      router.push('/analyze')
+                    }}
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    New Analysis
+                  </button>
+                </div>
+              </div>
+            )}
+            
             <div className="mt-4">
               <span className="text-xs text-gray-300" style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>
                 ••••••••••••••••••••••••••••••••••••••••
@@ -452,20 +844,21 @@ export default function AnalyzePage() {
 
                 {/* Content Area */}
                 <div className="p-6">
+                  
                   {inputMode === 'text' ? (
                     /* Text Input Mode */
                     <div className="relative" ref={textContainerRef} style={{ isolation: 'isolate' }}>
-                      <textarea
-                      ref={textAreaRef}
-                      value={text}
-                      onChange={handleTextChange}
-                      placeholder="Paste or type your text here for analysis..."
-                      className="w-full h-64 p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm leading-relaxed focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 resize-none transition-all"
-                      style={{ 
-                        fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-                        color: highlightedSections.length > 0 ? 'transparent' : undefined 
-                      }}
-                    />
+                        <textarea
+                          ref={textAreaRef}
+                          value={text}
+                          onChange={handleTextChange}
+                          placeholder="Paste or type your text here for analysis..."
+                          className="w-full h-64 p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm leading-relaxed focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 resize-none transition-all"
+                          style={{ 
+                            fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+                            color: highlightedSections.length > 0 ? 'transparent' : undefined 
+                          }}
+                        />
                     
                     {/* Privacy Reassurance */}
                     <div className="mt-2 flex items-center justify-between">
@@ -621,14 +1014,19 @@ export default function AnalyzePage() {
                 {/* Analysis Progress */}
                 {isAnalyzing && (
                   <div className="px-6 pb-6">
-                    <ProgressDots progress={analysisProgress} isActive={true} color="blue" />
+                    <div className="space-y-2">
+                      <ProgressDots progress={analysisProgress} isActive={true} color="blue" />
+                      <p className="text-sm text-gray-600 text-center animate-pulse">
+                        {analysisMessage}
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
 
               {/* Suggestions Section - AUTO-EXPANDED */}
               <AnimatePresence>
-                {analysisResult && analysisResult.improvement_suggestions && (
+                {analysisResult && analysisResult.sentenceScores && analysisResult.sentenceScores.length > 0 && (
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -637,9 +1035,32 @@ export default function AnalyzePage() {
                   >
                     <div className="bg-white border border-gray-200 rounded-xl p-6">
                       <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-medium text-gray-900">
-                          <span className="text-xs text-gray-400" style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>••••••••</span> Writing Improvements
-                        </h3>
+                        <div className="flex items-center gap-4">
+                          <h3 className="text-sm font-medium text-gray-900">
+                            <span className="text-xs text-gray-400" style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>••••••••</span> Writing Improvements
+                          </h3>
+                          {highlightedSections.length > 0 && (
+                            <VoiceSafeToggle
+                              enabled={voiceEditingState.voiceSafeMode}
+                              onChange={(enabled) => {
+                                setVoiceEditingState(prev => ({ ...prev, voiceSafeMode: enabled }))
+                                // Re-filter suggestions based on new state
+                                if (enabled && profile?.is_premium) {
+                                  const voiceSafeSections = highlightedSections.filter(
+                                    s => (s.voiceSimilarity || 0) >= voiceEditingState.similarityThreshold
+                                  )
+                                  showToast(
+                                    `Voice-Safe Mode: Showing ${voiceSafeSections.length} of ${highlightedSections.length} suggestions`,
+                                    'info'
+                                  )
+                                }
+                              }}
+                              isPremium={profile?.is_premium || false}
+                              suggestionCount={highlightedSections.length}
+                              filteredCount={highlightedSections.filter(s => (s.voiceSimilarity || 0) >= 70).length}
+                            />
+                          )}
+                        </div>
                         <button
                           onClick={() => setShowSuggestions(!showSuggestions)}
                           className="text-xs text-gray-500 hover:text-gray-700"
@@ -650,6 +1071,15 @@ export default function AnalyzePage() {
                       
                       {showSuggestions && (
                         <div className="space-y-4">
+                          {/* Voice teaser for non-premium users */}
+                          {!profile?.is_premium && (
+                            <InlineVoiceTeaser 
+                              isPremium={false}
+                              hasVoiceProfile={!!voiceProfileState.voiceprint}
+                              className="mb-4"
+                            />
+                          )}
+                          
                           {/* Show first 3 or all suggestions based on state */}
                           {(showAllSuggestions ? analysisResult.improvement_suggestions : analysisResult.improvement_suggestions.slice(0, 3))
                             .map((suggestion, index) => {
@@ -704,6 +1134,25 @@ export default function AnalyzePage() {
 
             {/* Results Sidebar */}
             <div className="space-y-6">
+              {/* Voice Profile CTA for users without profile */}
+              {!voiceProfileState.voiceprint && (
+                <VoiceProfileCTA 
+                  sampleCount={voiceProfileState.samples?.length || 0}
+                  className="animate-fade-in-up"
+                />
+              )}
+              
+              {/* Value Display for free users */}
+              {!profile?.is_premium && (
+                <ValueDisplay 
+                  metrics={{
+                    analysesUsed: 3, // You'd get this from actual usage
+                    analysesLimit: 5,
+                    wordsDetected: 2341,
+                    authenticityImproved: 12
+                  }}
+                />
+              )}
               {/* Document Stats - Minimalistic */}
               <motion.div 
                 whileHover={{ scale: 1.01 }}
@@ -767,6 +1216,13 @@ export default function AnalyzePage() {
                 )}
               </motion.div>
 
+              {/* ML Voice DNA Analysis - New Feature */}
+              {text && text.length >= 50 && (
+                <div className="mb-6">
+                  {/* ML analysis will be integrated here */}
+                </div>
+              )}
+
               {/* Analysis Results */}
               <AnimatePresence>
                 {analysisResult && (
@@ -783,36 +1239,44 @@ export default function AnalyzePage() {
                       </div>
                       
                       <div className="p-6 space-y-6">
+                        {/* Main AI Detection Score */}
                         <div>
                           <div className="flex items-center justify-between mb-3">
-                            <span className="text-sm text-gray-600">Authenticity</span>
-                            <span className="text-2xl font-light text-gray-900">
-                              {Math.round(analysisResult.authenticity_score)}%
-                            </span>
-                          </div>
-                          <SubtleBlocks 
-                            value={analysisResult.authenticity_score} 
-                            max={100} 
-                            color="green"
-                            isActive={activeMetric === 'results'}
-                            size="sm"
-                          />
-                        </div>
-
-                        <div className="pt-4 border-t border-gray-100">
-                          <div className="flex items-center justify-between mb-3">
                             <span className="text-sm text-gray-600">AI Detection</span>
-                            <span className="text-2xl font-light text-gray-900">
+                            <span className="text-3xl font-light text-gray-900">
                               {Math.round(analysisResult.ai_confidence_score)}%
                             </span>
                           </div>
                           <SubtleBlocks 
                             value={analysisResult.ai_confidence_score} 
                             max={100} 
-                            color="red"
+                            color={
+                              analysisResult.ai_confidence_score > 60 ? "red" :
+                              analysisResult.ai_confidence_score > 30 ? "yellow" : "green"
+                            }
                             isActive={activeMetric === 'results'}
                             size="sm"
                           />
+                        </div>
+
+                        {/* Quick Stats */}
+                        <div className="pt-4 border-t border-gray-100 grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Patterns Found</p>
+                            <p className="text-lg font-medium text-gray-900">
+                              {highlightedSections.length || 0}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Risk Level</p>
+                            <p className={`text-lg font-medium ${
+                              analysisResult.ai_confidence_score > 60 ? 'text-red-600' :
+                              analysisResult.ai_confidence_score > 30 ? 'text-amber-600' : 'text-green-600'
+                            }`}>
+                              {analysisResult.ai_confidence_score > 60 ? 'High' :
+                               analysisResult.ai_confidence_score > 30 ? 'Medium' : 'Low'}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -843,6 +1307,18 @@ export default function AnalyzePage() {
                         <p className="text-xs text-gray-500 mt-4 italic">
                           Hover over highlighted text to see specific patterns
                         </p>
+                        
+                        {/* Apply All Fixes Button */}
+                        {highlightedSections.some(s => s.replacementText) && (
+                          <Button
+                            onClick={applyAllFixes}
+                            variant="default"
+                            size="sm"
+                            className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            Apply All {highlightedSections.filter(s => s.replacementText).length} Fixes
+                          </Button>
+                        )}
                       </div>
                     )}
 
@@ -891,15 +1367,15 @@ export default function AnalyzePage() {
         </div>
       </div>
       
-      {/* Contextual Suggestion Popup - Rendered as Portal */}
+      {/* Enhanced Voice-Aware Suggestion Popup - Rendered as Portal */}
       {selectedSection && typeof document !== 'undefined' && createPortal(
         <div 
           className={`suggestion-popup fixed z-50 bg-white border border-gray-300 rounded-lg shadow-2xl p-4`}
           style={{ 
             left: `${selectedSection.x}px`, 
             top: `${selectedSection.y}px`,
-            width: '320px',
-            maxHeight: '400px',
+            width: '360px',
+            maxHeight: '450px',
             overflowY: 'auto'
           }}
         >
@@ -914,6 +1390,47 @@ export default function AnalyzePage() {
             >
               <span className="text-lg leading-none">×</span>
             </button>
+          </div>
+          
+          {/* Voice Impact Section */}
+          {selectedSection.section.voiceSimilarity !== undefined && (
+            <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-gray-700">Voice Impact</span>
+                {selectedSection.section.voiceSimilarity >= 70 ? (
+                  <span className="text-xs text-green-600 font-medium">Voice-Safe</span>
+                ) : (
+                  <span className="text-xs text-yellow-600 font-medium">May Alter Voice</span>
+                )}
+              </div>
+              <VoiceImpactIndicator 
+                similarity={selectedSection.section.voiceSimilarity} 
+                size="sm" 
+                showPercentage={true}
+                isActive={true}
+              />
+              {voiceProfileState.traits && (
+                <p className="text-xs text-gray-500 mt-2">
+                  {selectedSection.section.voiceSimilarity >= 70 
+                    ? `Preserves your ${selectedSection.section.preservedTraits?.[0] || 'writing style'}`
+                    : `May affect your ${selectedSection.section.voice_dimensions_affected?.[0] || 'tone'}`
+                  }
+                </p>
+              )}
+            </div>
+          )}
+          
+          {/* Trust Indicators */}
+          <TrustIndicators 
+            sampleCount={voiceProfileState.samples?.length}
+            confidence={selectedSection.section.confidence}
+            hasVoiceProfile={!!voiceProfileState.voiceprint}
+            className="mb-3"
+          />
+          
+          {/* ASCII Separator */}
+          <div className="text-center text-gray-300 text-xs mb-3" style={{ fontFamily: 'SF Mono, Monaco, monospace' }}>
+            ••••••••••••••••••••••••••••••••
           </div>
           
           <div className="border-t border-gray-100 pt-3">
@@ -937,7 +1454,7 @@ export default function AnalyzePage() {
             <div className="flex gap-2">
               <button 
                 className="flex-1 px-3 py-2 bg-gray-900 text-white text-xs font-medium rounded hover:bg-black transition-colors"
-                onClick={() => applyFix(selectedSection.section)}
+                onClick={async () => await applyFix(selectedSection.section)}
               >
                 Apply Fix
               </button>
@@ -951,14 +1468,52 @@ export default function AnalyzePage() {
           </div>
           
           <div className="mt-3 pt-3 border-t border-gray-100">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-500">Confidence</span>
-              <span className="font-medium text-gray-900">{Math.round(selectedSection.section.confidence)}%</span>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">AI Confidence</span>
+                <span className="font-medium text-gray-900">{Math.round(selectedSection.section.confidence)}%</span>
+              </div>
+              {voiceProfileState.samples?.length > 0 && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">Based on</span>
+                  <span className="font-medium text-gray-900">{voiceProfileState.samples.length} voice samples</span>
+                </div>
+              )}
             </div>
           </div>
         </div>,
         document.body
       )}
+      
+      {/* Upgrade Prompt */}
+      {showUpgradePrompt && (
+        <div className="fixed bottom-4 right-4 z-40 max-w-sm">
+          <UpgradePrompt 
+            trigger={showUpgradePrompt.trigger}
+            metric={showUpgradePrompt.metric}
+            onDismiss={() => setShowUpgradePrompt(null)}
+            onAction={() => {
+              router.push('/pricing')
+              setShowUpgradePrompt(null)
+            }}
+          />
+        </div>
+      )}
+      
+      {/* Mobile Bottom Sheet */}
+      <MobileBottomSheet
+        isOpen={!!mobileBottomSheetSection && isMobile}
+        onClose={() => setMobileBottomSheetSection(null)}
+        section={mobileBottomSheetSection || {}}
+        onApply={() => {
+          if (mobileBottomSheetSection) {
+            applyFix(mobileBottomSheetSection)
+            setMobileBottomSheetSection(null)
+          }
+        }}
+        onDismiss={() => setMobileBottomSheetSection(null)}
+        isPremium={profile?.is_premium || false}
+      />
     </AppLayout>
   )
 }

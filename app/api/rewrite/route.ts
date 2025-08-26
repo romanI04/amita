@@ -75,11 +75,13 @@ export async function POST(request: NextRequest) {
               "riskScore": <number 5-40>,
               "riskDelta": <number -50 to 0, negative means risk reduction>,
               "authenticityDelta": <number 0 to 30, positive means authenticity increase>,
+              "voiceSimilarity": <number 0-100, how well it matches the original voice>,
               "voiceTraitPreserved": "<main voice trait that was preserved>",
               "voiceTraitEnhanced": "<optional voice trait that was enhanced>",
               "locksRespected": ["<list of constraint types respected>"],
               "risksReduced": ["<list of risk types addressed>"],
-              "analysisConfidence": <number 0.6-1.0>
+              "analysisConfidence": <number 0.6-1.0>,
+              "voiceDriftWarning": null or "<warning if voiceSimilarity < 70>"
             }`
           },
           {
@@ -129,11 +131,13 @@ export async function POST(request: NextRequest) {
         riskScore,
         riskDelta,
         authenticityDelta,
+        voiceSimilarity,
         voiceTraitPreserved,
         voiceTraitEnhanced,
         locksRespected, 
         risksReduced, 
-        analysisConfidence 
+        analysisConfidence,
+        voiceDriftWarning
       } = rewriteResult
       
       // Validate required fields from AI response with fallbacks
@@ -164,8 +168,10 @@ export async function POST(request: NextRequest) {
         riskScore,
         riskDelta: riskDelta || -10,
         authenticityDelta: authenticityDelta || 5,
+        voiceSimilarity: voiceSimilarity || 85,
         voiceTraitPreserved: voiceTraitPreserved || 'natural cadence',
         voiceTraitEnhanced: voiceTraitEnhanced || null,
+        voiceDriftWarning: voiceDriftWarning || (voiceSimilarity && voiceSimilarity < 70 ? `Voice similarity is low (${voiceSimilarity}%). Consider using a more conservative rewrite mode.` : null),
         metadata: {
           originalLength: textToRewrite.length,
           rewrittenLength: rewrittenText.length,

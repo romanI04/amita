@@ -19,10 +19,34 @@ export default function OnboardingWizard() {
     setCurrentStep(1)
   }
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
     setSkipped(true)
-    // Navigate to dashboard with a flag that onboarding was skipped
-    router.push('/dashboard?onboarding=skipped')
+    
+    // Mark onboarding as complete by updating the profile
+    try {
+      const response = await fetch('/api/user/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ onboarded: true })
+      })
+      
+      if (response.ok) {
+        // Force a hard refresh to ensure auth context updates
+        window.location.href = '/dashboard'
+      } else {
+        const errorData = await response.json()
+        console.error('Failed to update profile:', errorData)
+        // Still navigate even if update fails
+        // Use hard refresh to ensure profile reloads
+        window.location.href = '/dashboard'
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error)
+      // Still navigate even if update fails
+      // Use hard refresh to ensure profile reloads
+      window.location.href = '/dashboard'
+    }
   }
 
   return (

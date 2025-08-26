@@ -26,11 +26,13 @@ export default function DashboardLayout({
         return
       }
 
-      // If user needs onboarding (no profile or not onboarded) and not already on onboarding
+      // IMMEDIATELY redirect to onboarding if not onboarded
+      // Check this FIRST before anything else
       if ((!profile || !profile.onboarded) && pathname !== '/onboarding') {
-        console.log('User needs onboarding, redirecting...')
+        console.log('User needs onboarding, redirecting IMMEDIATELY...')
         setHasRedirected(true)
-        router.push('/onboarding')
+        // Use replace to prevent back button issues
+        router.replace('/onboarding')
         return
       }
 
@@ -49,7 +51,9 @@ export default function DashboardLayout({
     setHasRedirected(false)
   }, [pathname])
 
-  if (loading) {
+  // ALWAYS show loading state while we determine onboarding status
+  // This prevents ANY dashboard glimpse
+  if (loading || !user || (user && !profile)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-secondary-50">
         <div className="text-center">
@@ -60,8 +64,16 @@ export default function DashboardLayout({
     )
   }
 
-  if (!user) {
-    return null // Will redirect to login
+  // If user needs onboarding, show loading while redirecting
+  if (profile && !profile.onboarded && pathname !== '/onboarding') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-secondary-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-neutral-600">Preparing your experience...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

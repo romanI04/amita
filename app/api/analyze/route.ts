@@ -4,6 +4,7 @@ import { xaiClient } from '@/lib/xai/client'
 import { directInsert } from '@/lib/supabase/direct-api'
 import { validate, generateRequestId, formatValidationError, analyzeSchema } from '@/lib/validation'
 import { rateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { checkAnalysisLimit } from '@/lib/subscription/limits'
 import type { AnalysisRequest, AnalysisResponse } from '@/types'
 
 export async function POST(request: NextRequest) {
@@ -86,11 +87,28 @@ export async function POST(request: NextRequest) {
     
     const user_id = user.id
     
+    // Check subscription limits
+    const limitCheck = await checkAnalysisLimit(user_id)
+    if (!limitCheck.allowed) {
+      console.log('User hit analysis limit:', { userId: user_id, limits: limitCheck.limits })
+      return NextResponse.json(
+        {
+          error: 'Analysis limit reached',
+          details: limitCheck.message,
+          limits: limitCheck.limits,
+          upgradeUrl: '/pricing',
+          requestId
+        },
+        { status: 403 }
+      )
+    }
+    
     console.log('Analysis request:', { 
       textLength: text.length, 
       userId: user_id, 
       title: title || 'untitled',
-      requestId
+      requestId,
+      usageLimits: limitCheck.limits
     })
 
     console.log('Starting xAI analysis...')
@@ -379,8 +397,47 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('Returning complete analysis result to client')
-    return NextResponse.json(response)
+    // Add per-sentence scoring for visualization
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || []
+    const sentenceScores = sentences.map((sentence, index) => {
+      // Calculate AI likelihood for each sentence
+      const avgWords = sentence.trim().split(/\s+/).length
+      const hasAIPhrases = /however|furthermore|additionally|in conclusion|it is important to note/i.test(sentence)
+      const formalityScore = /utilize|implement|facilitate|demonstrate|comprehensive/i.test(sentence) ? 10 : 0
+      
+      // Base score on various factors
+      let score = 0
+      if (avgWords > 25) score += 20
+      if (hasAIPhrases) score += 30
+      score += formalityScore
+      
+      // Add variance based on detected sections
+      if (analysis.detected_sections?.some((section: any) => 
+        text.indexOf(sentence) >= section.start && text.indexOf(sentence) <= section.end
+      )) {
+        score += 20
+      }
+      
+      return {
+        index,
+        text: sentence.trim(),
+        score: Math.min(100, Math.max(0, score)),
+        features: {
+          wordCount: avgWords,
+          hasAIPhrases,
+          formalityScore: formalityScore > 0
+        }
+      }
+    })
+    
+    // Add sentence scores to response
+    const enhancedResponse = {
+      ...response,
+      sentenceScores
+    }
+    
+    console.log('Returning complete analysis result to client with sentence scores')
+    return NextResponse.json(enhancedResponse)
 
   } catch (error) {
     console.error('Analysis API error:', error)

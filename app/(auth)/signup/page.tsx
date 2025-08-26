@@ -39,7 +39,15 @@ export default function SignUpPage() {
   // Auto-redirect if already authenticated
   useEffect(() => {
     if (!authLoading && user) {
-      router.push('/dashboard')
+      // Check if user has completed onboarding
+      const onboardingCompleted = localStorage.getItem('onboarding_completed')
+      const hasFirstAnalysis = localStorage.getItem('has_first_analysis')
+      
+      if (onboardingCompleted === 'true' || hasFirstAnalysis === 'true') {
+        router.push('/dashboard')
+      } else {
+        router.push('/welcome')
+      }
     }
   }, [user, authLoading, router])
   
@@ -100,12 +108,16 @@ export default function SignUpPage() {
       const { error } = await signUp(email, password)
       
       if (error) {
-        if (error.message.includes('User already registered')) {
+        if (error.message?.includes('User already registered') || error.message?.includes('already exists')) {
           setErrors({ general: 'An account with this email already exists. Try signing in instead.' })
-        } else if (error.message.includes('Password should be at least 6 characters')) {
+        } else if (error.message?.includes('Password should be at least 6 characters')) {
           setErrors({ password: 'Password must be at least 6 characters long' })
-        } else {
+        } else if (error.message?.includes('Database error')) {
+          setErrors({ general: 'Sign up is temporarily unavailable. Please try again in a few minutes or contact support.' })
+        } else if (error.message?.includes('Email verification is currently unavailable')) {
           setErrors({ general: error.message })
+        } else {
+          setErrors({ general: error.message || 'An error occurred during sign up. Please try again.' })
         }
       } else {
         // Apply referral code if present

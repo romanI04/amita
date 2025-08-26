@@ -406,16 +406,24 @@ export function VoiceProfileProvider({ children }: VoiceProfileProviderProps) {
       
       const supabase = createClient()
 
-      // Get voiceprint
-      const { data: voiceprintList } = await supabase
+      // Get voiceprint - prioritize active ones, but include computing as fallback
+      const { data: voiceprintList, error: voiceprintError } = await supabase
         .from('voiceprints')
         .select('*')
         .eq('user_id', user.id)
-        .eq('status', 'active')
+        .in('status', ['active', 'computing'])
+        .order('status', { ascending: true }) // 'active' comes before 'computing' alphabetically
         .order('created_at', { ascending: false })
         .limit(1)
 
+      if (voiceprintError) {
+        console.error('Error loading voiceprint:', voiceprintError)
+      }
+
       const voiceprint = voiceprintList?.[0] || null
+      
+      // Log for debugging
+      console.log('Loaded voiceprint for user', user.id, ':', voiceprint?.id, 'status:', voiceprint?.status)
 
       // Get traits if voiceprint exists
       let traits = null

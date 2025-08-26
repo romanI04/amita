@@ -34,11 +34,24 @@ export default function VoiceprintOnboardingPage() {
   
   // Fetch user's existing analyses
   useEffect(() => {
-    if (!user) return
+    if (!user) {
+      console.log('No user found in auth context')
+      return
+    }
+    
+    console.log('Fetching samples for user:', user.id, user.email)
     
     const fetchSamples = async () => {
       try {
         const supabase = createClient()
+        
+        // First verify the user is authenticated
+        const { data: { user: currentUser } } = await supabase.auth.getUser()
+        console.log('Current authenticated user:', currentUser?.id, currentUser?.email)
+        
+        if (currentUser?.id !== user.id) {
+          console.warn('User ID mismatch!', { contextUser: user.id, authUser: currentUser?.id })
+        }
         
         // Get user's analyzed texts
         const { data: analyses, error } = await supabase
@@ -48,7 +61,26 @@ export default function VoiceprintOnboardingPage() {
           .order('created_at', { ascending: false })
           .limit(20)
         
-        if (error) throw error
+        if (error) {
+          console.error('Error fetching analyses:', error)
+          throw error
+        }
+        
+        console.log('Fetched analyses:', analyses?.length || 0)
+        
+        // Debug: Log the first analysis to see structure
+        if (analyses && analyses.length > 0) {
+          console.log('First analysis structure:', {
+            id: analyses[0].id,
+            hasContent: !!analyses[0].content,
+            contentLength: analyses[0].content?.length || 0,
+            title: analyses[0].title,
+            scores: {
+              authenticity: analyses[0].authenticity_score,
+              ai_confidence: analyses[0].ai_confidence_score
+            }
+          })
+        }
         
         if (!analyses || analyses.length === 0) {
           setError('No analyzed texts found. Please analyze some text first.')
@@ -62,13 +94,23 @@ export default function VoiceprintOnboardingPage() {
             id: a.id,
             title: a.title || `Analysis from ${new Date(a.created_at).toLocaleDateString()}`,
             content: a.content || '',
-            wordCount: a.content?.trim().split(/\s+/).filter(w => w.length > 0).length || 0,
+            wordCount: a.content?.trim().split(/\s+/).filter((w: string) => w.length > 0).length || 0,
             authenticity: (a.authenticity_score || 0) / 100, // Convert from 0-100 to 0-1
-            aiRisk: (a.ai_risk_score || 0) / 100, // Convert from 0-100 to 0-1
+            aiRisk: (a.ai_confidence_score || 0) / 100, // Fix: use ai_confidence_score instead of ai_risk_score
             createdAt: a.created_at,
             selected: false
           }))
-          .filter(s => s.wordCount >= 50) // Filter out samples with less than 50 words
+          .filter(s => {
+            // Be more lenient with existing analyses - they should have already been validated
+            // Only filter out truly empty or very short content
+            const hasMinimumContent = s.wordCount >= 30 || s.content.length >= 100
+            if (!hasMinimumContent) {
+              console.log(`Filtering out sample "${s.title}": ${s.wordCount} words, ${s.content.length} chars`)
+            }
+            return hasMinimumContent
+          })
+        
+        console.log('After filtering for minimum content:', sampleSelections.length, 'samples remain')
         
         // Auto-select the best samples (high authenticity, good word count, diverse dates)
         const sorted = [...sampleSelections].sort((a, b) => {
@@ -79,8 +121,21 @@ export default function VoiceprintOnboardingPage() {
         })
         
         // Check if we have enough valid samples
-        if (sampleSelections.length < 3) {
-          setError('Not enough valid samples found. Each sample needs at least 50 words. Please analyze more text.')
+        if (sampleSelections.length === 0) {
+          // All samples were filtered out - likely because they don't have content or have less than required minimum
+          console.warn('All samples filtered out. Original count:', analyses.length)
+          console.warn('Sample details:', analyses.slice(0, 3).map(a => ({
+            title: a.title,
+            hasContent: !!a.content,
+            contentLength: a.content?.length || 0,
+            wordCount: a.content?.trim().split(/\s+/).filter((w: string) => w.length > 0).length || 0
+          })))
+          setError(`Found ${analyses.length} analyses but none have sufficient content. Each sample needs at least 30 words. Please try analyzing new text with more content.`)
+          setSamples([])
+          setLoading(false)
+          return
+        } else if (sampleSelections.length < 3) {
+          setError(`Only ${sampleSelections.length} valid sample${sampleSelections.length === 1 ? '' : 's'} found. Need at least 3 samples. Please analyze ${3 - sampleSelections.length} more text${sampleSelections.length === 2 ? '' : 's'}.`)
           setSamples(sampleSelections)
           setLoading(false)
           return
@@ -238,7 +293,8 @@ export default function VoiceprintOnboardingPage() {
     return null
   }
   
-  if ((error || samples.length < 3) && samples.length === 0) {
+  // Show error if no samples at all
+  if (samples.length === 0 && error) {
     return (
       <AppLayout>
         <div className="min-h-screen bg-white flex items-center justify-center">
@@ -247,15 +303,44 @@ export default function VoiceprintOnboardingPage() {
               ○○○○○
             </span>
             <h2 className="text-xl font-light text-gray-900 mt-4 mb-2">
-              {samples.length === 0 ? 'No Analyses Found' : 'Need More Samples'}
+              No Analyses Found
             </h2>
             <p className="text-sm text-gray-500 mb-6">
-              {samples.length === 0 
-                ? 'You need to analyze some text before creating a voice profile.'
-                : `You need at least 3 samples with 50+ words each. Currently have ${samples.length} valid sample${samples.length === 1 ? '' : 's'}.`}
+              You need to analyze some text before creating a voice profile.
             </p>
             <Link href="/analyze">
               <Button>Analyze Text →</Button>
+            </Link>
+          </div>
+        </div>
+      </AppLayout>
+    )
+  }
+  
+  // Show warning if we have samples but less than 3
+  if (samples.length > 0 && samples.length < 3) {
+    return (
+      <AppLayout>
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <div className="text-center max-w-md">
+            <span style={{ fontFamily: 'SF Mono, Monaco, monospace' }} className="text-4xl text-gray-300">
+              {Array(samples.length).fill('•').join('')}{Array(3 - samples.length).fill('○').join('')}
+            </span>
+            <h2 className="text-xl font-light text-gray-900 mt-4 mb-2">
+              Need More Samples
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              You need at least 3 samples with 50+ words each. Currently have {samples.length} valid sample{samples.length === 1 ? '' : 's'}.
+            </p>
+            <div className="space-y-2 mb-6">
+              {samples.map(s => (
+                <div key={s.id} className="text-xs text-gray-400">
+                  ✓ {s.title} ({s.wordCount} words)
+                </div>
+              ))}
+            </div>
+            <Link href="/analyze">
+              <Button>Analyze More Text →</Button>
             </Link>
           </div>
         </div>

@@ -150,29 +150,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string) => {
     try {
       console.log('Attempting sign up for:', email)
+      
+      // First, check if user already exists
+      const { data: existingUser } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
+      
+      if (existingUser?.user) {
+        console.log('User already exists, signing in instead')
+        setUser(existingUser.user)
+        setSession(existingUser.session)
+        await fetchProfileDirect(existingUser.user.id, existingUser.session?.access_token)
+        return { error: { message: 'User already exists. You have been signed in.' } }
+      }
+      
+      // Attempt signup
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/callback`
+          emailRedirectTo: `${window.location.origin}/callback`,
+          data: {
+            full_name: email.split('@')[0] // Use email prefix as initial name
+          }
         }
       })
 
       if (error) {
-        console.log('Sign up error:', error)
+        console.error('Sign up error:', error)
+        
+        // Handle specific database errors
+        if (error.message?.includes('Database error')) {
+          // Try alternative signup approach without email confirmation
+          console.log('Database error detected, attempting workaround...')
+          
+          // Check if this is an email configuration issue
+          if (error.message?.includes('saving new user')) {
+            return { 
+              error: {
+                message: 'Email verification is currently unavailable. Please try again later or contact support.',
+                originalError: error
+              }
+            }
+          }
+        }
+        
+        // Handle duplicate user error
+        if (error.message?.includes('already registered')) {
+          return { 
+            error: {
+              message: 'This email is already registered. Please sign in instead.'
+            }
+          }
+        }
+        
         return { error }
       }
 
       // Profile creation is handled by the /callback route after email confirmation
-      console.log('Sign up successful. User will receive confirmation email.')
+      console.log('Sign up initiated. Check your email for confirmation.')
       
-      if (data.user?.email_confirmed_at) {
+      if (data?.user?.email_confirmed_at) {
         // User is instantly confirmed (e.g., email confirmation disabled)
         console.log('User instantly confirmed, creating profile now')
         try {
           await directInsert('profiles', {
             id: data.user.id,
-            full_name: null,
+            full_name: email.split('@')[0],
             onboarded: false,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -226,9 +271,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      console.error('Error signing out:', error)
+    try {
+      console.log('Signing out user...')
+      const { error } = await supabase.auth.signOut()
+      if (error) {
+        console.error('Error signing out:', error)
+        throw error
+      }
+      
+      // Clear local state
+      setUser(null)
+      setSession(null)
+      setProfile(null)
+      
+      // Clear any localStorage items
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('voiceProfileUpsellDismissTime')
+        localStorage.removeItem('onboardingChecklistDismissed')
+      }
+      
+      // Redirect to login page
+      window.location.href = '/login'
+    } catch (error) {
+      console.error('Sign out error:', error)
+      // Force redirect even on error
+      window.location.href = '/login'
     }
   }
 

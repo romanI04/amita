@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useVoiceProfile, useVoiceProfileSelectors } from '@/lib/context/VoiceProfileContext'
 import { useProfileUpdates } from '@/lib/events/VoiceProfileEvents'
 import { Button } from '@/components/ui/Button'
+import { useToast } from '@/components/ui/Toast'
+// Voice DNA components removed - ML system replacing this functionality
 import { 
   SubtleBlocks,
   ProcessIndicator,
@@ -17,7 +19,8 @@ import {
   ArrowRightIcon,
   DocumentTextIcon,
   SparklesIcon,
-  CloudArrowUpIcon
+  CloudArrowUpIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline'
 import AppLayout from '@/components/layout/AppLayout'
 import Link from 'next/link'
@@ -37,6 +40,7 @@ export default function DashboardPage() {
   const searchParams = useSearchParams()
   const { state: voiceProfileState } = useVoiceProfile()
   const selectors = useVoiceProfileSelectors()
+  const { showToast } = useToast()
   
   const [showVoiceprintSuccess, setShowVoiceprintSuccess] = useState(false)
   const [currentText, setCurrentText] = useState('')
@@ -44,9 +48,37 @@ export default function DashboardPage() {
   const [typingTimer, setTypingTimer] = useState<NodeJS.Timeout | null>(null)
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
   const [processingMetric, setProcessingMetric] = useState<string | null>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [quickResult, setQuickResult] = useState<{
+    ai_confidence: number
+    riskLevel: 'low' | 'medium' | 'high'
+    authenticity?: number
+    band?: 'safe' | 'caution' | 'danger'
+    cached?: boolean
+    responseTime?: number
+  } | null>(null)
+  const [liveAnalysisTimeout, setLiveAnalysisTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [checklistDismissed, setChecklistDismissed] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('onboardingChecklistDismissed') === 'true'
+    }
+    return false
+  })
+  const [voiceUpsellDismissed, setVoiceUpsellDismissed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const dismissTime = localStorage.getItem('voiceProfileUpsellDismissTime')
+      if (!dismissTime) return false
+      
+      const minutesSinceDismiss = (Date.now() - parseInt(dismissTime)) / (1000 * 60)
+      
+      // Reappear after 30 minutes
+      if (minutesSinceDismiss >= 30) {
+        localStorage.removeItem('voiceProfileUpsellDismissTime')
+        return false
+      }
+      
+      return true
     }
     return false
   })
@@ -79,15 +111,52 @@ export default function DashboardPage() {
   }, [searchParams])
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setCurrentText(e.target.value)
+    const text = e.target.value
+    setCurrentText(text)
     setIsTyping(true)
     
+    // Clear previous timers
     if (typingTimer) clearTimeout(typingTimer)
+    if (liveAnalysisTimeout) clearTimeout(liveAnalysisTimeout)
     
+    // Set typing timer
     const timer = setTimeout(() => {
       setIsTyping(false)
     }, 500)
     setTypingTimer(timer)
+    
+    // Debounced live analysis (400ms after typing stops)
+    if (text.length >= 50) {
+      const analysisTimer = setTimeout(async () => {
+        try {
+          const response = await fetch('/api/analyze/quick', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text.slice(0, 2000) }) // Limit to 2k chars
+          })
+          
+          if (response.ok) {
+            const data = await response.json()
+            setQuickResult({
+              ai_confidence: Math.round(100 - data.authenticity),
+              riskLevel: data.risk as 'low' | 'medium' | 'high',
+              authenticity: data.authenticity,
+              band: data.band,
+              cached: data.cached,
+              responseTime: data.responseTime
+            })
+            setAnalysisError(null)
+          }
+        } catch (error) {
+          console.error('Live analysis error:', error)
+        }
+      }, 400)
+      
+      setLiveAnalysisTimeout(analysisTimer)
+    } else {
+      // Clear results if text is too short
+      setQuickResult(null)
+    }
   }
 
   if (loading) {
@@ -115,18 +184,95 @@ export default function DashboardPage() {
     ? Math.round(recentAnalyses.reduce((acc, a) => acc + a.ai_confidence_score, 0) / recentAnalyses.length)
     : 0
     
-  // Calculate checklist progress
+  // Calculate checklist progress - simplified to 2 items
   const hasAnalyzedText = totalAnalyses > 0
-  const hasAddedSamples = voiceProfileState.coverage.sampleCount >= 3
-  const hasReviewedProfile = voiceProfileState.status === 'active'
-  const checklistComplete = hasAnalyzedText && hasAddedSamples && hasReviewedProfile
+  const hasViewedResults = hasAnalyzedText // Automatically true after first analysis
+  const checklistComplete = hasAnalyzedText && hasViewedResults
+  
+  // Check if 30 minutes have passed since dismissal
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const checkDismissTime = () => {
+      const dismissTime = localStorage.getItem('voiceProfileUpsellDismissTime')
+      if (!dismissTime) return
+      
+      const minutesSinceDismiss = (Date.now() - parseInt(dismissTime)) / (1000 * 60)
+      
+      if (minutesSinceDismiss >= 30) {
+        localStorage.removeItem('voiceProfileUpsellDismissTime')
+        setVoiceUpsellDismissed(false)
+      }
+    }
+    
+    // Check every minute
+    const interval = setInterval(checkDismissTime, 60000)
+    
+    return () => clearInterval(interval)
+  }, [])
   
   const dismissChecklist = () => {
     setChecklistDismissed(true)
     localStorage.setItem('onboardingChecklistDismissed', 'true')
   }
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
+    if (!currentText.trim() || charCount < 50) {
+      showToast('Please enter at least 50 characters', 'error')
+      return
+    }
+
+    setIsAnalyzing(true)
+    setAnalysisError(null)
+    setQuickResult(null)
+
+    try {
+      // Use REAL AI analysis endpoint - no synthetic data allowed
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          text: currentText,
+          title: 'Quick Analysis from Dashboard',
+          voiceprintId: undefined // Optional - quick analysis without voice profile
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Analysis failed')
+      }
+
+      const data = await response.json()
+      
+      // Determine risk level based on real AI confidence
+      let riskLevel: 'low' | 'medium' | 'high' = 'low'
+      if (data.ai_confidence_score > 60) riskLevel = 'high'
+      else if (data.ai_confidence_score > 30) riskLevel = 'medium'
+      
+      setQuickResult({
+        ai_confidence: data.ai_confidence_score || 0,
+        riskLevel
+      })
+      
+      showToast('Analysis complete', 'success')
+      
+    } catch (error: any) {
+      console.error('Analysis error:', error)
+      // Show specific error messages with guidance
+      if (error.message?.includes('rate limit')) {
+        setAnalysisError('Rate limit reached. Please wait a moment and try again.')
+      } else if (error.message?.includes('timeout')) {
+        setAnalysisError('Analysis is taking longer than expected. Please try again.')
+      } else {
+        setAnalysisError(`Analysis failed: ${error.message || 'Please try again'}`)
+      }
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  const handleViewFullAnalysis = () => {
     if (currentText.trim()) {
       sessionStorage.setItem('quickAnalysisText', currentText)
     }
@@ -177,11 +323,11 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Quick Analysis - Responsive padding */}
+          {/* AI Analysis - Responsive padding */}
           <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 lg:p-8 mb-8 hover:border-gray-300 transition-all">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h2 className="text-lg font-medium text-gray-900 mb-1">Quick Analysis</h2>
+                <h2 className="text-lg font-medium text-gray-900 mb-1">AI Analysis</h2>
                 <p className="text-sm text-gray-500">Start typing to activate metrics</p>
               </div>
               <TypingFlow isTyping={isTyping} wordCount={wordCount} />
@@ -226,21 +372,90 @@ export default function DashboardPage() {
                 
                 <Button
                   onClick={handleAnalyze}
-                  disabled={charCount < 50}
+                  disabled={charCount < 50 || isAnalyzing}
+                  loading={isAnalyzing}
                   className="bg-gray-900 hover:bg-black text-white text-sm px-6 py-2 transition-all"
                 >
-                  Analyze
-                  <ArrowRightIcon className="h-4 w-4 ml-2" />
+                  {isAnalyzing ? 'Analyzing with AI...' : 'Analyze Text'}
+                  {!isAnalyzing && <ArrowRightIcon className="h-4 w-4 ml-2" />}
                 </Button>
               </div>
             </div>
+            
+            {/* AI Analysis Results - Real-time Display */}
+            {quickResult && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.15 }}
+                className="mt-4 bg-white border border-gray-200 rounded-lg p-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className={`p-3 rounded-lg ${
+                      quickResult.riskLevel === 'high' ? 'bg-red-50' :
+                      quickResult.riskLevel === 'medium' ? 'bg-amber-50' :
+                      'bg-green-50'
+                    }`}>
+                      <SparklesIcon className={`h-6 w-6 ${
+                        quickResult.riskLevel === 'high' ? 'text-red-600' :
+                        quickResult.riskLevel === 'medium' ? 'text-amber-600' :
+                        'text-green-600'
+                      }`} />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">AI Detection</p>
+                      <p className={`text-2xl font-bold ${
+                        quickResult.riskLevel === 'high' ? 'text-red-600' :
+                        quickResult.riskLevel === 'medium' ? 'text-amber-600' :
+                        'text-green-600'
+                      }`}>
+                        {quickResult.ai_confidence}%
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={handleViewFullAnalysis}
+                      variant="default"
+                      size="sm"
+                    >
+                      Deep Analysis
+                      <ArrowRightIcon className="h-3 w-3 ml-1" />
+                    </Button>
+                    <button
+                      onClick={() => {
+                        setCurrentText('')
+                        setQuickResult(null)
+                      }}
+                      className="text-gray-400 hover:text-gray-600 p-1"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+            
+            {/* Error Display */}
+            {analysisError && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800">{analysisError}</p>
+              </div>
+            )}
           </div>
 
-          {/* First Success Checklist - Responsive */}
+          {/* Simplified Onboarding Checklist - Only 2 items */}
           {!checklistDismissed && !checklistComplete && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 sm:p-6 mb-8">
+            <div className="bg-gradient-to-r from-primary-50 to-blue-50 border border-primary-200 rounded-lg p-4 sm:p-6 mb-8">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium text-gray-900">Getting Started</h3>
+                <div>
+                  <h3 className="text-sm font-medium text-gray-900">Quick Start Guide</h3>
+                  <p className="text-xs text-gray-500 mt-1">Complete in under 60 seconds!</p>
+                </div>
                 <button
                   onClick={dismissChecklist}
                   className="text-gray-400 hover:text-gray-600 text-sm"
@@ -249,100 +464,95 @@ export default function DashboardPage() {
                 </button>
               </div>
               <div className="space-y-3">
+                {/* Step 1: Analyze your first text */}
                 <Link href="/analyze" className="block">
                   <div className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
                     hasAnalyzedText 
                       ? 'bg-white border border-green-200' 
                       : 'bg-white border border-gray-200 hover:border-gray-300 cursor-pointer'
                   }`}>
-                    <div className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full border-2 flex items-center justify-center ${
                       hasAnalyzedText
                         ? 'border-green-500 bg-green-500'
-                        : 'border-gray-300'
+                        : 'border-primary-400 bg-white animate-pulse'
                     }`}>
-                      {hasAnalyzedText && (
-                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      {hasAnalyzedText ? (
+                        <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                         </svg>
+                      ) : (
+                        <span className="text-primary-600 font-bold text-sm">1</span>
                       )}
                     </div>
                     <div className="flex-1">
                       <p className={`text-sm font-medium ${
                         hasAnalyzedText ? 'text-green-700' : 'text-gray-900'
                       }`}>
-                        Analyze a text
+                        Analyze your first text
                       </p>
                       <p className="text-xs text-gray-500">
-                        {hasAnalyzedText ? 'Completed' : 'Run your first analysis'}
+                        {hasAnalyzedText ? '✅ Completed!' : '~30 seconds • AI detection analysis'}
                       </p>
                     </div>
+                    {!hasAnalyzedText && (
+                      <ArrowRightIcon className="h-4 w-4 text-gray-400" />
+                    )}
                   </div>
                 </Link>
                 
-                <Link href="/upload" className="block">
-                  <div className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
-                    hasAddedSamples 
-                      ? 'bg-white border border-green-200' 
-                      : 'bg-white border border-gray-200 hover:border-gray-300 cursor-pointer'
+                {/* Step 2: View your results */}
+                <div className={`flex items-center gap-3 p-3 rounded-lg ${
+                  hasViewedResults 
+                    ? 'bg-white border border-green-200' 
+                    : 'bg-white/50 border border-gray-100'
+                }`}>
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-full border-2 flex items-center justify-center ${
+                    hasViewedResults
+                      ? 'border-green-500 bg-green-500'
+                      : 'border-gray-300 bg-white'
                   }`}>
-                    <div className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                      hasAddedSamples
-                        ? 'border-green-500 bg-green-500'
-                        : 'border-gray-300'
-                    }`}>
-                      {hasAddedSamples && (
-                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <p className={`text-sm font-medium ${
-                        hasAddedSamples ? 'text-green-700' : 'text-gray-900'
-                      }`}>
-                        Add samples to Voice Profile
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {hasAddedSamples 
-                          ? `${voiceProfileState.coverage.sampleCount} samples added` 
-                          : `${voiceProfileState.coverage.sampleCount}/3 samples required`}
-                      </p>
-                    </div>
+                    {hasViewedResults ? (
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    ) : (
+                      <span className="text-gray-400 font-bold text-sm">2</span>
+                    )}
                   </div>
-                </Link>
-                
-                <Link href="/profile" className="block">
-                  <div className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
-                    hasReviewedProfile 
-                      ? 'bg-white border border-green-200' 
-                      : 'bg-white border border-gray-200 hover:border-gray-300 cursor-pointer'
-                  }`}>
-                    <div className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                      hasReviewedProfile
-                        ? 'border-green-500 bg-green-500'
-                        : 'border-gray-300'
+                  <div className="flex-1">
+                    <p className={`text-sm font-medium ${
+                      hasViewedResults ? 'text-green-700' : 'text-gray-500'
                     }`}>
-                      {hasReviewedProfile && (
-                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <p className={`text-sm font-medium ${
-                        hasReviewedProfile ? 'text-green-700' : 'text-gray-900'
-                      }`}>
-                        Review your Voice Profile
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {hasReviewedProfile ? 'Voice profile active' : 'Complete setup to activate'}
-                      </p>
-                    </div>
+                      View your results
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {hasViewedResults ? '✅ Completed!' : 'Instant • See AI patterns'}
+                    </p>
                   </div>
-                </Link>
+                </div>
+
+                {/* Celebration when complete */}
+                {checklistComplete && (
+                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <SparklesIcon className="h-5 w-5 text-green-600" />
+                      <p className="text-sm font-medium text-green-800">
+                        Awesome! You're all set up 🎉
+                      </p>
+                    </div>
+                    <p className="text-xs text-green-600 mt-1">
+                      Tip: Create a voice profile after 3 analyses for personalized suggestions
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
+
+          {/* Voice DNA Dashboard - New ML Feature */}
+          <div className="mb-8">
+            {/* ML dashboard will be integrated here */}
+          </div>
 
           {/* Stats Row - Responsive grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
@@ -422,6 +632,61 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+
+          {/* Voice Profile Upsell - Shows after 3 analyses */}
+          {totalAnalyses >= 3 && voiceProfileState.status !== 'active' && !voiceUpsellDismissed && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-white rounded-xl p-6 mb-8 relative overflow-hidden shadow-xl"
+              style={{
+                background: 'linear-gradient(135deg, #0a0e27 0%, #1e3a8a 20%, #0891b2 40%, #06b6d4 50%, #fbbf24 70%, #f97316 85%, #ea580c 100%)',
+                backgroundSize: '200% 200%',
+                animation: 'gradientShift 15s ease infinite'
+              }}
+            >
+              {/* Dismiss button */}
+              <button 
+                onClick={() => {
+                  // Save dismiss timestamp
+                  localStorage.setItem('voiceProfileUpsellDismissTime', Date.now().toString())
+                  setVoiceUpsellDismissed(true)
+                }}
+                className="absolute top-4 right-4 text-white/60 hover:text-white transition-colors"
+                title="Dismiss"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+
+              {/* Content */}
+              <div className="pr-8">
+                <div className="flex items-center gap-3 mb-3">
+                  <SparklesIcon className="h-6 w-6 text-white" />
+                  <h3 className="text-lg font-semibold">Unlock Voice Profile</h3>
+                  <span className="px-2 py-0.5 bg-white/20 rounded text-xs font-medium">
+                    Pro Feature
+                  </span>
+                </div>
+                
+                <p className="text-white/90 mb-5">
+                  You've completed {totalAnalyses} analyses! Create your voice profile for personalized, voice-aware suggestions.
+                </p>
+                
+                <div className="flex items-center gap-4">
+                  <Link href="/profile">
+                    <button className="bg-white/95 backdrop-blur-sm text-gray-900 hover:bg-white font-semibold py-2.5 px-6 rounded-lg transition-all shadow-lg hover:shadow-xl flex items-center gap-2">
+                      Create Voice Profile
+                      <ArrowRightIcon className="h-4 w-4" />
+                    </button>
+                  </Link>
+                  <p className="text-xs text-white/80">
+                    Requires 3+ writing samples • Takes 2 minutes
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
 
           {/* Action Cards - Responsive grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">

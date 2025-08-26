@@ -2,7 +2,15 @@
 
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { exampleTexts, type ExampleText } from '@/lib/examples'
+// import { exampleTexts, type ExampleText } from '@/lib/examples'
+type ExampleText = {
+  id: string
+  title: string
+  category: string
+  text: string
+  icon: string
+}
+const exampleTexts: ExampleText[] = [] // Temporarily empty - examples removed
 import { 
   DocumentTextIcon,
   SparklesIcon,

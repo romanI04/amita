@@ -1,8 +1,8 @@
 import React from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import DemoMode from '@/components/DemoMode'
+import TrustMetrics from '@/components/TrustMetrics'
 import { 
   ArrowRightIcon,
   SparklesIcon,
@@ -11,7 +11,6 @@ import {
   ChartBarIcon,
   DocumentMagnifyingGlassIcon,
   PencilSquareIcon,
-  CheckIcon,
   ArrowTrendingUpIcon
 } from '@heroicons/react/24/outline'
 
@@ -35,9 +34,6 @@ export default function HomePage() {
                 </Link>
                 <Link href="#how-it-works" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
                   How It Works
-                </Link>
-                <Link href="#pricing" className="text-gray-600 hover:text-gray-900 text-sm font-medium">
-                  Pricing
                 </Link>
               </div>
             </div>
@@ -99,27 +95,10 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Trust Indicators */}
+      {/* Trust Indicators - Real Metrics from Database */}
       <section className="relative z-10 py-12 border-y border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-gray-900">95%</div>
-              <div className="text-sm text-gray-600 mt-1">AI Detection Accuracy</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-gray-900">10k+</div>
-              <div className="text-sm text-gray-600 mt-1">Writers Protected</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-gray-900">Real-time</div>
-              <div className="text-sm text-gray-600 mt-1">Voice Analysis</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-gray-900">100%</div>
-              <div className="text-sm text-gray-600 mt-1">Privacy Focused</div>
-            </div>
-          </div>
+          <TrustMetrics />
         </div>
       </section>
 
@@ -285,150 +264,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Pricing Section */}
-      <section id="pricing" className="relative z-10 py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <span className="text-primary-500 font-semibold text-sm uppercase tracking-wider">
-              Pricing
-            </span>
-            <h2 className="text-4xl font-bold text-gray-900 mt-3 mb-4">
-              Choose Your Plan
-            </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Start free and upgrade as you grow. No credit card required.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {/* Free Plan */}
-            <Card className="relative border-gray-200">
-              <CardHeader>
-                <CardTitle className="text-2xl">Free</CardTitle>
-                <div className="mt-4">
-                  <span className="text-4xl font-bold">$0</span>
-                  <span className="text-gray-600">/month</span>
-                </div>
-                <CardDescription className="mt-4">
-                  Perfect for trying out amita.ai
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 mb-8">
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">5 analyses per month</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Basic AI detection</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Voice fingerprint creation</span>
-                  </li>
-                </ul>
-                <Link href="/signup">
-                  <Button variant="outline" className="w-full">
-                    Get Started
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-
-            {/* Pro Plan */}
-            <Card className="relative border-primary-200 bg-gradient-to-b from-primary-50/50 to-white">
-              <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                <span className="bg-primary-500 text-white text-sm font-semibold px-3 py-1 rounded-full">
-                  Most Popular
-                </span>
-              </div>
-              <CardHeader>
-                <CardTitle className="text-2xl">Pro</CardTitle>
-                <div className="mt-4">
-                  <span className="text-4xl font-bold">$19</span>
-                  <span className="text-gray-600">/month</span>
-                </div>
-                <CardDescription className="mt-4">
-                  For serious writers and professionals
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 mb-8">
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Unlimited analyses</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Advanced AI detection</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Real-time suggestions</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Progress tracking</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Export reports</span>
-                  </li>
-                </ul>
-                <Link href="/signup">
-                  <Button className="w-full">
-                    Start Free Trial
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-
-            {/* Team Plan */}
-            <Card className="relative border-gray-200">
-              <CardHeader>
-                <CardTitle className="text-2xl">Team</CardTitle>
-                <div className="mt-4">
-                  <span className="text-4xl font-bold">$49</span>
-                  <span className="text-gray-600">/month</span>
-                </div>
-                <CardDescription className="mt-4">
-                  For teams and organizations
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 mb-8">
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Everything in Pro</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">5 team members</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Team analytics</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Priority support</span>
-                  </li>
-                  <li className="flex items-start">
-                    <CheckIcon className="h-5 w-5 text-primary-500 mr-2 mt-0.5 flex-shrink-0" />
-                    <span className="text-gray-600">Custom integrations</span>
-                  </li>
-                </ul>
-                <Link href="/signup">
-                  <Button variant="outline" className="w-full">
-                    Contact Sales
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
 
       {/* CTA Section */}
       <section className="relative z-10 py-20 bg-gradient-to-r from-primary-500 to-primary-600">
@@ -447,9 +282,9 @@ export default function HomePage() {
                 <ArrowRightIcon className="ml-2 h-5 w-5" />
               </Button>
             </Link>
-            <Link href="#pricing">
+            <Link href="#how-it-works">
               <Button variant="outline" size="lg" className="border-white text-white hover:bg-white/10">
-                View Pricing
+                See How It Works
               </Button>
             </Link>
           </div>
@@ -470,7 +305,6 @@ export default function HomePage() {
               <h4 className="font-semibold text-gray-900 mb-4">Product</h4>
               <ul className="space-y-2">
                 <li><Link href="#features" className="text-gray-600 hover:text-gray-900 text-sm">Features</Link></li>
-                <li><Link href="#pricing" className="text-gray-600 hover:text-gray-900 text-sm">Pricing</Link></li>
                 <li><Link href="/login" className="text-gray-600 hover:text-gray-900 text-sm">Login</Link></li>
               </ul>
             </div>

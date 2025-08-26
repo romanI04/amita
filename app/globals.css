@@ -17,6 +17,18 @@
   body {
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
+  
+  @keyframes gradientShift {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
 }
 
 @layer components {
@@ -228,5 +240,22 @@
       transform: scale(1.05);
       opacity: 0.9;
     }
+  }
+  
+  
+  /* Live meter animation */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+  
+  .live-indicator {
+    animation: pulse 2s infinite;
+  }
+  
+  /* Voice similarity warning */
+  .voice-drift-warning {
+    background: linear-gradient(90deg, rgba(251, 191, 36, 0.1) 0%, rgba(239, 68, 68, 0.1) 100%);
+    border-left: 3px solid rgb(251, 146, 60);
   }
 }

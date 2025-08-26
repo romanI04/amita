@@ -542,92 +542,88 @@ export default function HistoryPage() {
             ) : (
               <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-200">
                 {filteredItems.map((item) => (
-                  <div key={item.id} className="p-6 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start space-x-4 flex-1">
+                  <div 
+                    key={item.id} 
+                    className="relative hover:bg-gray-50 transition-colors cursor-pointer group"
+                    onClick={(e) => {
+                      // Don't navigate if clicking on checkbox or action buttons
+                      const target = e.target as HTMLElement
+                      if (
+                        target.tagName === 'INPUT' || 
+                        target.tagName === 'BUTTON' ||
+                        target.closest('button') ||
+                        target.closest('a')
+                      ) {
+                        return
+                      }
+                      // Navigate to analysis page
+                      window.location.href = `/analyze?sample_id=${item.id}`
+                    }}
+                  >
+                    <div className="py-3 px-4 flex items-center justify-between">
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
                         <input
                           type="checkbox"
                           checked={selectedItems.includes(item.id)}
                           onChange={() => handleSelectItem(item.id)}
-                          className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded flex-shrink-0"
                         />
                         
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-3 mb-2">
-                            <h3 className="text-lg font-medium text-gray-900">
-                              {item.title || 'Untitled Analysis'}
-                            </h3>
-                            {item.latest_version && item.latest_version > 1 && (
-                              <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
-                                v{item.latest_version}
-                              </span>
-                            )}
-                          </div>
-                          
-                          <div className="flex items-center space-x-4 text-sm text-gray-500 mb-3">
-                            <div className="flex items-center space-x-1">
-                              <ClockIcon className="h-4 w-4" />
-                              <span>{formatDate(item.created_at)}</span>
-                            </div>
-                            <span>•</span>
-                            <span>{Math.round((item.content?.length || 0) / 5)} words</span>
-                            {item.total_changes && item.total_changes > 0 && (
-                              <>
-                                <span>•</span>
-                                <span>{item.total_changes} improvements applied</span>
-                              </>
-                            )}
-                          </div>
-                          
-                          <p className="text-gray-700 text-sm line-clamp-2 mb-3">
-                            {item.content?.substring(0, 150) || ''}
-                            {item.content && item.content.length > 150 ? '...' : ''}
-                          </p>
-                          
-                          <div className="flex items-center space-x-4">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm text-gray-600">Authenticity:</span>
-                              <span className={`text-sm font-medium ${getAuthenticityColor(item.authenticity_score || 0)}`}>
-                                {Math.round(item.authenticity_score || 0)}%
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm text-gray-600">AI Risk:</span>
-                              <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRiskColor(item.ai_confidence_score || 0)}`}>
-                                {Math.round(item.ai_confidence_score || 0)}%
-                              </span>
-                            </div>
-                            
-                            {item.improvement_percentage && item.improvement_percentage > 0 && (
-                              <div className="flex items-center space-x-1 text-green-600">
-                                <SparklesIcon className="h-4 w-4" />
-                                <span className="text-sm font-medium">+{item.improvement_percentage}% improved</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0 pr-4">
+                              {/* Ultra minimal - title and date only */}
+                              <div className="flex items-center justify-between mb-1">
+                                <h3 className="font-medium text-gray-900 truncate">
+                                  {item.title || 'Analysis'} - {new Date(item.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}
+                                </h3>
                               </div>
-                            )}
+                              
+                              {/* Single line preview and metrics */}
+                              <div className="flex items-center justify-between">
+                                <p className="text-gray-500 text-sm truncate flex-1 mr-4">
+                                  {item.content?.substring(0, 80) || ''}
+                                </p>
+                                
+                                {/* Minimal badges on right */}
+                                <div className="flex items-center space-x-3 text-xs flex-shrink-0">
+                                  <span className="text-gray-500">{formatDate(item.created_at)}</span>
+                                  <span className="text-gray-400">•</span>
+                                  <span className="text-gray-500">{Math.round((item.content?.length || 0) / 5)} words</span>
+                                  
+                                  <span className={`${getRiskColor(item.ai_confidence_score || 0)} px-1.5 py-0.5 rounded font-medium`}>
+                                    AI {Math.round(item.ai_confidence_score || 0)}%
+                                  </span>
+                                  <span className={`${getAuthenticityColor(item.authenticity_score || 0)} font-medium`}>
+                                    {Math.round(item.authenticity_score || 0)}% authentic
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Action buttons - more subtle until hover */}
+                            <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Link href={`/analyze?sample_id=${item.id}`} onClick={(e) => e.stopPropagation()}>
+                                <Button variant="ghost" size="sm" className="p-2">
+                                  <EyeIcon className="h-4 w-4" />
+                                </Button>
+                              </Link>
+                              
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                className="p-2"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  window.open(`/api/export/analysis/${item.id}?format=pdf`, '_blank')
+                                }}
+                              >
+                                <ArrowDownTrayIcon className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-2 ml-4">
-                        <Link href={`/analyze?sample_id=${item.id}`}>
-                          <Button variant="outline" size="sm" className="flex items-center space-x-1">
-                            <EyeIcon className="h-4 w-4" />
-                            <span>View</span>
-                          </Button>
-                        </Link>
-                        
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            // Export individual item
-                            window.open(`/api/export/analysis/${item.id}?format=pdf`, '_blank')
-                          }}
-                          className="flex items-center space-x-1"
-                        >
-                          <ArrowDownTrayIcon className="h-4 w-4" />
-                        </Button>
                       </div>
                     </div>
                   </div>

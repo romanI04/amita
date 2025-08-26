@@ -4,6 +4,7 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/lib/auth/context'
+import UsageTracker from '@/components/UsageTracker'
 import { 
   HomeIcon, 
   DocumentTextIcon, 
@@ -96,26 +97,12 @@ export default function Sidebar({ onClose }: SidebarProps) {
         })}
       </nav>
 
-      {/* Usage stats */}
-      <div className="px-6 py-4 border-t border-gray-200">
-        <div className="space-y-3">
-          <div>
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>Analyses this month</span>
-              <span>3 / 25</span>
-            </div>
-            <div className="mt-1 w-full bg-gray-200 rounded-full h-1">
-              <div className="bg-primary-500 h-1 rounded-full" style={{ width: '12%' }} />
-            </div>
-          </div>
-          
-          <Link href="/pricing" onClick={onClose}>
-            <button className="w-full bg-primary-600 text-white text-sm font-medium py-2 px-3 rounded-lg hover:bg-primary-700 transition-colors">
-              Upgrade plan
-            </button>
-          </Link>
+      {/* Dynamic Usage Tracker */}
+      {user && (
+        <div className="px-3 py-4 border-t border-gray-200">
+          <UsageTracker userId={user.id} isCompact={true} />
         </div>
-      </div>
+      )}
 
       {/* Bottom navigation */}
       <div className="px-3 pb-4">
@@ -145,9 +132,13 @@ export default function Sidebar({ onClose }: SidebarProps) {
         })}
         
         <button
-          onClick={() => {
-            signOut()
-            onClose?.()
+          onClick={async () => {
+            try {
+              await signOut()
+              onClose?.()
+            } catch (error) {
+              console.error('Error during sign out:', error)
+            }
           }}
           className="group flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-lg transition-colors w-full text-left mt-1"
         >
